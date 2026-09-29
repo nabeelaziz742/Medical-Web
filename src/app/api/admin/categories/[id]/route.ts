@@ -29,7 +29,7 @@ export async function PATCH(
       );
     }
 
-    const updated = updateAdminCategory(id, validated.data);
+    const updated = await updateAdminCategory(id, validated.data);
 
     return NextResponse.json({
       success: true,
@@ -58,7 +58,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const result = deleteAdminCategory(id);
+    const result = await deleteAdminCategory(id);
 
     return NextResponse.json(result);
   } catch (error: any) {

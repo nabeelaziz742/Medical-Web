@@ -29,7 +29,7 @@ export async function PATCH(
       );
     }
 
-    const updated = updateAdminBrand(id, validated.data);
+    const updated = await updateAdminBrand(id, validated.data);
 
     return NextResponse.json({
       success: true,
@@ -58,7 +58,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const result = deleteAdminBrand(id);
+    const result = await deleteAdminBrand(id);
 
     return NextResponse.json(result);
   } catch (error: any) {

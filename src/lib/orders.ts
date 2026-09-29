@@ -36,6 +36,8 @@ export interface PopulatedOrder {
   customerPhone: string;
   customerEmail: string | null;
   deliveryAddress: string;
+  deliveryArea?: string | null;
+  deliveryNotes?: string | null;
   deliveryMethod: string;
   status: "PENDING" | "CONFIRMED" | "PREPARING" | "DISPATCHED" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED" | "REFUNDED";
   paymentStatus: "PENDING" | "PAID" | "FAILED" | "REFUNDED";
@@ -161,6 +163,8 @@ export async function createOrder(
           customerEmail: input.customerEmail?.trim() || null,
           shippingAddressId: input.shippingAddressId || null,
           deliveryAddress: input.deliveryAddress.trim(),
+          deliveryArea: input.deliveryArea.trim(),
+          deliveryNotes: input.deliveryNotes?.trim() || null,
           deliveryMethod: "HOME_DELIVERY",
           status: "PENDING",
           paymentStatus: "PENDING",
@@ -249,7 +253,7 @@ export async function createOrder(
         ...order,
         items: createdItems,
       };
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     createdOrder = {
       id: dbOrder.id,
@@ -259,6 +263,8 @@ export async function createOrder(
       customerPhone: dbOrder.customerPhone,
       customerEmail: dbOrder.customerEmail,
       deliveryAddress: dbOrder.deliveryAddress,
+      deliveryArea: dbOrder.deliveryArea,
+      deliveryNotes: dbOrder.deliveryNotes,
       deliveryMethod: dbOrder.deliveryMethod,
       status: dbOrder.status as PopulatedOrder["status"],
       paymentStatus: dbOrder.paymentStatus as PopulatedOrder["paymentStatus"],
@@ -328,6 +334,8 @@ export async function createOrder(
       customerPhone: input.customerPhone.trim(),
       customerEmail: input.customerEmail?.trim() || null,
       deliveryAddress: input.deliveryAddress.trim(),
+      deliveryArea: input.deliveryArea.trim(),
+      deliveryNotes: input.deliveryNotes?.trim() || null,
       deliveryMethod: "HOME_DELIVERY",
       status: "PENDING",
       paymentStatus: "PENDING",
@@ -394,6 +402,8 @@ export async function getUserOrders(userId: string): Promise<PopulatedOrder[]> {
         customerPhone: o.customerPhone,
         customerEmail: o.customerEmail,
         deliveryAddress: o.deliveryAddress,
+        deliveryArea: o.deliveryArea,
+        deliveryNotes: o.deliveryNotes,
         deliveryMethod: o.deliveryMethod,
         status: o.status as PopulatedOrder["status"],
         paymentStatus: o.paymentStatus as PopulatedOrder["paymentStatus"],
@@ -453,6 +463,8 @@ export async function getOrderById(orderIdOrNumber: string, userId?: string): Pr
         customerPhone: dbOrder.customerPhone,
         customerEmail: dbOrder.customerEmail,
         deliveryAddress: dbOrder.deliveryAddress,
+        deliveryArea: dbOrder.deliveryArea,
+        deliveryNotes: dbOrder.deliveryNotes,
         deliveryMethod: dbOrder.deliveryMethod,
         status: dbOrder.status as PopulatedOrder["status"],
         paymentStatus: dbOrder.paymentStatus as PopulatedOrder["paymentStatus"],

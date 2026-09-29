@@ -78,8 +78,8 @@ export const adminPrescriptionReviewSchema = z.object({
   adminNotes: z.string().max(1000).optional().nullable(),
 });
 
-export type AdminOrderUpdateInput = z.infer<typeof adminOrderUpdateSchema>;
-export type AdminProductInput = z.infer<typeof adminProductSchema>;
-export type AdminCategoryInput = z.infer<typeof adminCategorySchema>;
-export type AdminBrandInput = z.infer<typeof adminBrandSchema>;
-export type AdminPrescriptionReviewInput = z.infer<typeof adminPrescriptionReviewSchema>;
+export type AdminOrderUpdateInput = z.input<typeof adminOrderUpdateSchema>;
+export type AdminProductInput = z.input<typeof adminProductSchema>;
+export type AdminCategoryInput = z.input<typeof adminCategorySchema>;
+export type AdminBrandInput = z.input<typeof adminBrandSchema>;
+export type AdminPrescriptionReviewInput = z.input<typeof adminPrescriptionReviewSchema>;

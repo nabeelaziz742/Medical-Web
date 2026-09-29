@@ -17,7 +17,7 @@ export async function GET(
     }
 
     const { id } = await params;
-    const product = getAdminProductById(id);
+    const product = await getAdminProductById(id);
 
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
@@ -58,7 +58,7 @@ export async function PATCH(
       );
     }
 
-    const updated = updateAdminProduct(id, validated.data);
+    const updated = await updateAdminProduct(id, validated.data);
 
     return NextResponse.json({
       success: true,
@@ -87,7 +87,7 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const result = deleteAdminProduct(id);
+    const result = await deleteAdminProduct(id);
 
     return NextResponse.json(result);
   } catch (error: any) {

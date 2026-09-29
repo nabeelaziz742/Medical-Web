@@ -26,6 +26,8 @@ interface Order {
   customerPhone: string;
   customerEmail: string | null;
   deliveryAddress: string;
+  deliveryArea?: string | null;
+  deliveryNotes?: string | null;
   status: string;
   paymentStatus: string;
   paymentMethod: string;
@@ -153,7 +155,7 @@ export default function AdminOrdersPage() {
               setSearch(e.target.value);
               setPage(1);
             }}
-            placeholder="Search by order #, customer, phone..."
+            placeholder="Search by order #, customer, phone, area..."
             className="w-full h-10 pl-9 pr-3.5 rounded-xl border border-slate-700 bg-slate-800/80 text-xs text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
         </div>
@@ -217,6 +219,7 @@ export default function AdminOrdersPage() {
                 <tr>
                   <th className="py-3.5 px-4 font-semibold">Order Number</th>
                   <th className="py-3.5 px-4 font-semibold">Customer</th>
+                  <th className="py-3.5 px-4 font-semibold">Area / Locality</th>
                   <th className="py-3.5 px-4 font-semibold">Items</th>
                   <th className="py-3.5 px-4 font-semibold">Total Amount</th>
                   <th className="py-3.5 px-4 font-semibold">Payment</th>
@@ -234,6 +237,11 @@ export default function AdminOrdersPage() {
                     <td className="py-3.5 px-4">
                       <p className="font-semibold text-white">{order.customerName}</p>
                       <p className="text-[11px] text-slate-400">{order.customerPhone}</p>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-blue-300 border border-slate-700">
+                        {order.deliveryArea || "Lahore"}
+                      </span>
                     </td>
                     <td className="py-3.5 px-4 text-slate-300">
                       <span className="font-semibold">{order.items?.length || 0}</span> item(s)

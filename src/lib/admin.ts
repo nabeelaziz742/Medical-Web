@@ -76,7 +76,7 @@ import { getInventoryDashboardMetrics } from "@/lib/inventory";
 export async function getAdminDashboardMetrics() {
   const allOrders = await getAllAdminOrdersRaw();
   const allPrescriptions = await getAllAdminPrescriptionsRaw();
-  const productsList = getAdminProductsListRaw();
+  const productsList = await getAdminProductsListRaw();
   const customers = await getAdminCustomersListRaw();
   const inventoryMetrics = await getInventoryDashboardMetrics();
 
@@ -146,6 +146,8 @@ export async function getAllAdminOrdersRaw(): Promise<PopulatedOrder[]> {
         customerPhone: o.customerPhone,
         customerEmail: o.customerEmail,
         deliveryAddress: o.deliveryAddress,
+        deliveryArea: o.deliveryArea,
+        deliveryNotes: o.deliveryNotes,
         deliveryMethod: o.deliveryMethod,
         status: o.status as PopulatedOrder["status"],
         paymentStatus: o.paymentStatus as PopulatedOrder["paymentStatus"],
@@ -200,7 +202,9 @@ export async function getAdminOrders(params: {
         o.orderNumber.toLowerCase().includes(q) ||
         o.customerName.toLowerCase().includes(q) ||
         o.customerPhone.toLowerCase().includes(q) ||
-        o.customerEmail?.toLowerCase().includes(q)
+        o.customerEmail?.toLowerCase().includes(q) ||
+        o.deliveryArea?.toLowerCase().includes(q) ||
+        o.deliveryAddress.toLowerCase().includes(q)
     );
   }
 
@@ -267,6 +271,8 @@ export async function getAdminOrderById(idOrNumber: string): Promise<PopulatedOr
         customerPhone: dbOrder.customerPhone,
         customerEmail: dbOrder.customerEmail,
         deliveryAddress: dbOrder.deliveryAddress,
+        deliveryArea: dbOrder.deliveryArea,
+        deliveryNotes: dbOrder.deliveryNotes,
         deliveryMethod: dbOrder.deliveryMethod,
         status: dbOrder.status as PopulatedOrder["status"],
         paymentStatus: dbOrder.paymentStatus as PopulatedOrder["paymentStatus"],
@@ -334,6 +340,8 @@ export async function updateAdminOrderStatus(
       customerPhone: dbOrder.customerPhone,
       customerEmail: dbOrder.customerEmail,
       deliveryAddress: dbOrder.deliveryAddress,
+      deliveryArea: dbOrder.deliveryArea,
+      deliveryNotes: dbOrder.deliveryNotes,
       deliveryMethod: dbOrder.deliveryMethod,
       status: dbOrder.status as PopulatedOrder["status"],
       paymentStatus: dbOrder.paymentStatus as PopulatedOrder["paymentStatus"],
@@ -467,16 +475,213 @@ export async function getAdminPrescriptions(params: {
 }
 
 // -------------------------------------------------------------
-// 4. PRODUCT MANAGEMENT
+// 4. PRODUCT MANAGEMENT & POSTGRESQL PERSISTENCE
 // -------------------------------------------------------------
-function getAdminProductsListRaw(): ProductDetail[] {
+
+export function formatDbProductToDetail(p: any, totalStockOverride?: number): ProductDetail {
+  const totalStock =
+    totalStockOverride !== undefined
+      ? totalStockOverride
+      : (p.inventory?.totalStock ??
+        (p.batches && p.batches.length > 0
+          ? p.batches.reduce((sum: number, b: any) => sum + (b.quantity || 0), 0)
+          : 0));
+
+  const minStock = p.inventory?.minStockAlert ?? 10;
+  let stockStatus: "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK" = "IN_STOCK";
+  if (totalStock === 0) stockStatus = "OUT_OF_STOCK";
+  else if (totalStock <= minStock) stockStatus = "LOW_STOCK";
+
+  const brandName = p.brand?.name || "General";
+  const brandSlug = p.brand?.slug || brandName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const categoryName = p.category?.name || "Medicines";
+  const categorySlug = p.category?.slug || categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const primaryImage = p.images?.find((img: any) => img.isPrimary)?.url || p.images?.[0]?.url;
+
+  return {
+    id: p.id,
+    name: p.name,
+    slug: p.slug,
+    genericName: p.genericName || undefined,
+    brand: brandName,
+    brandSlug,
+    category: categoryName,
+    categorySlug,
+    packSize: p.packSize || "Standard Pack",
+    price: Number(p.price),
+    comparePrice: p.comparePrice ? Number(p.comparePrice) : undefined,
+    sku: p.sku,
+    stockStatus,
+    stockCount: totalStock,
+    requiresPrescription: Boolean(p.requiresPrescription),
+    isFeatured: Boolean(p.isFeatured),
+    description: p.description || "",
+    composition: p.composition || undefined,
+    usageInfo: p.usageInfo || undefined,
+    warnings: p.warnings || undefined,
+    storageInfo: p.storageInfo || undefined,
+    manufacturer: p.manufacturer || brandName,
+    image: primaryImage || undefined,
+  };
+}
+
+let isSeedingCatalog = false;
+export async function ensureDatabaseCatalogSeeded(): Promise<void> {
+  if (isSeedingCatalog) return;
+  try {
+    const count = await prisma.product.count();
+    if (count > 0) return;
+
+    isSeedingCatalog = true;
+    for (let i = 0; i < CATALOG_PRODUCTS.length; i++) {
+      const p = CATALOG_PRODUCTS[i];
+      const categorySlug = p.categorySlug || p.category.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const category = await prisma.category.upsert({
+        where: { slug: categorySlug },
+        create: {
+          name: p.category,
+          slug: categorySlug,
+          description: `Pharmacy category: ${p.category}`,
+          displayOrder: i,
+          isActive: true,
+        },
+        update: {},
+      });
+
+      const brandSlug = p.brandSlug || p.brand.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const brand = await prisma.brand.upsert({
+        where: { slug: brandSlug },
+        create: {
+          name: p.brand,
+          slug: brandSlug,
+        },
+        update: {},
+      });
+
+      const initialStock = p.stockCount || 50;
+      const createdProd = await prisma.product.upsert({
+        where: { slug: p.slug },
+        create: {
+          id: p.id,
+          name: p.name,
+          slug: p.slug,
+          genericName: p.genericName || null,
+          packSize: p.packSize,
+          price: p.price,
+          comparePrice: p.comparePrice || null,
+          sku: p.sku,
+          requiresPrescription: p.requiresPrescription,
+          description: p.description,
+          composition: p.composition || null,
+          usageInfo: p.usageInfo || null,
+          warnings: p.warnings || null,
+          storageInfo: p.storageInfo || null,
+          manufacturer: p.manufacturer,
+          isFeatured: Boolean(p.isFeatured),
+          isActive: true,
+          categoryId: category.id,
+          brandId: brand.id,
+          ...(p.image
+            ? {
+                images: {
+                  create: {
+                    url: p.image,
+                    altText: p.name,
+                    isPrimary: true,
+                  },
+                },
+              }
+            : {}),
+        },
+        update: {},
+      });
+
+      await prisma.inventory.upsert({
+        where: { productId: createdProd.id },
+        create: {
+          productId: createdProd.id,
+          totalStock: initialStock,
+          minStockAlert: 10,
+        },
+        update: {},
+      });
+
+      const now = new Date();
+      const exp = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+      const batchNumber = `SM-2026-B${i + 1}01`;
+      const batch = await prisma.batch.upsert({
+        where: {
+          productId_batchNumber: {
+            productId: createdProd.id,
+            batchNumber,
+          },
+        },
+        create: {
+          productId: createdProd.id,
+          batchNumber,
+          manufacturingDate: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000),
+          expiryDate: exp,
+          purchasePrice: Math.round(p.price * 0.7 * 100) / 100,
+          sellingPrice: p.price,
+          quantity: initialStock,
+          initialQuantity: initialStock,
+          isLocked: false,
+        },
+        update: {},
+      });
+
+      await prisma.stockTransaction.create({
+        data: {
+          productId: createdProd.id,
+          batchId: batch.id,
+          type: "PURCHASE",
+          quantity: initialStock,
+          balanceAfter: initialStock,
+          referenceId: "PO-INIT",
+          performedBy: "admin@saadmedicalstore.com",
+          notes: `Initial catalog intake of ${initialStock} units`,
+        },
+      });
+    }
+  } catch (err) {
+    // Graceful error handling for DB seeding
+  } finally {
+    isSeedingCatalog = false;
+  }
+}
+
+export async function getAdminProductsListRaw(): Promise<ProductDetail[]> {
+  try {
+    await ensureDatabaseCatalogSeeded();
+    const dbProducts = await prisma.product.findMany({
+      include: {
+        category: true,
+        brand: true,
+        inventory: true,
+        batches: true,
+        images: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (dbProducts && dbProducts.length > 0) {
+      return dbProducts.map((p) => {
+        const totalStock =
+          p.inventory?.totalStock ?? p.batches.reduce((sum, b) => sum + b.quantity, 0);
+        return formatDbProductToDetail(p, totalStock);
+      });
+    }
+  } catch (err) {
+    // Database query failed, fall through to memory
+  }
+
   const uniqueProducts = Array.from(memoryProducts.values()).filter(
     (p, idx, arr) => arr.findIndex((x) => x.id === p.id) === idx
   );
   return uniqueProducts;
 }
 
-export function getAdminProducts(params: {
+export async function getAdminProducts(params: {
   search?: string;
   category?: string;
   brand?: string;
@@ -484,10 +689,20 @@ export function getAdminProducts(params: {
   stockStatus?: string;
   page?: number;
   limit?: number;
-}) {
+}): Promise<{
+  products: ProductDetail[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}> {
   const page = Math.max(1, params.page || 1);
   const limit = Math.min(100, Math.max(1, params.limit || 20));
-  let products = getAdminProductsListRaw();
+  let products = await getAdminProductsListRaw();
 
   if (params.search && params.search.trim()) {
     const q = params.search.toLowerCase().trim();
@@ -503,13 +718,17 @@ export function getAdminProducts(params: {
 
   if (params.category && params.category !== "all") {
     products = products.filter(
-      (p) => p.categorySlug.toLowerCase() === params.category?.toLowerCase() || p.category.toLowerCase() === params.category?.toLowerCase()
+      (p) =>
+        p.categorySlug.toLowerCase() === params.category?.toLowerCase() ||
+        p.category.toLowerCase() === params.category?.toLowerCase()
     );
   }
 
   if (params.brand && params.brand !== "all") {
     products = products.filter(
-      (p) => p.brandSlug.toLowerCase() === params.brand?.toLowerCase() || p.brand.toLowerCase() === params.brand?.toLowerCase()
+      (p) =>
+        p.brandSlug.toLowerCase() === params.brand?.toLowerCase() ||
+        p.brand.toLowerCase() === params.brand?.toLowerCase()
     );
   }
 
@@ -539,96 +758,576 @@ export function getAdminProducts(params: {
   };
 }
 
-export function getAdminProductById(idOrSlug: string): ProductDetail | null {
+export async function getAdminProductById(idOrSlug: string): Promise<ProductDetail | null> {
+  try {
+    await ensureDatabaseCatalogSeeded();
+    const dbProduct = await prisma.product.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+      },
+      include: {
+        category: true,
+        brand: true,
+        inventory: true,
+        batches: true,
+        images: true,
+      },
+    });
+
+    if (dbProduct) {
+      const totalStock =
+        dbProduct.inventory?.totalStock ??
+        dbProduct.batches.reduce((sum, b) => sum + b.quantity, 0);
+      return formatDbProductToDetail(dbProduct, totalStock);
+    }
+  } catch (err) {
+    // Database query failed, fall through to memory
+  }
+
   return memoryProducts.get(idOrSlug) || null;
 }
 
-export function createAdminProduct(input: AdminProductInput): ProductDetail {
-  const existing = memoryProducts.get(input.slug);
-  if (existing) {
+export async function createAdminProduct(input: AdminProductInput): Promise<ProductDetail> {
+  const cleanSlug = input.slug.trim().toLowerCase();
+  const cleanSku = input.sku.trim().toUpperCase();
+
+  // 1. Check uniqueness in DB
+  try {
+    const existing = await prisma.product.findFirst({
+      where: {
+        OR: [{ slug: cleanSlug }, { sku: cleanSku }],
+      },
+    });
+    if (existing) {
+      if (existing.slug === cleanSlug) {
+        throw new Error(`A product with the slug "${input.slug}" already exists.`);
+      }
+      throw new Error(`A product with the SKU "${input.sku}" already exists.`);
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes("already exists")) {
+      throw err;
+    }
+  }
+
+  const memExisting = memoryProducts.get(cleanSlug);
+  if (memExisting) {
     throw new Error(`A product with the slug "${input.slug}" already exists.`);
   }
 
-  const categorySlug = input.category.toLowerCase().replace(/\s+/g, "-");
-  const brandSlug = input.brand.toLowerCase().replace(/\s+/g, "-");
+  const categoryName = input.category.trim();
+  const categorySlug =
+    categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "general";
+  const brandName = input.brand.trim();
+  const brandSlug =
+    brandName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "generic";
 
-  const newProduct: ProductDetail = {
-    id: `prod-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-    name: input.name.trim(),
-    slug: input.slug.trim(),
-    genericName: input.genericName?.trim() || undefined,
-    brand: input.brand.trim(),
-    brandSlug,
-    category: input.category.trim(),
-    categorySlug,
-    packSize: input.packSize.trim(),
-    price: input.price,
-    comparePrice: input.comparePrice || undefined,
-    sku: input.sku.trim().toUpperCase(),
-    stockStatus: input.stockStatus,
-    stockCount: input.stockCount,
-    requiresPrescription: input.requiresPrescription,
-    isFeatured: input.isFeatured,
-    description: input.description.trim(),
-    composition: input.composition?.trim() || undefined,
-    usageInfo: input.usageInfo?.trim() || undefined,
-    warnings: input.warnings?.trim() || undefined,
-    storageInfo: input.storageInfo?.trim() || undefined,
-    manufacturer: input.manufacturer.trim(),
-    image: input.image?.trim() || undefined,
-  };
+  const initialStock = Math.max(0, Number(input.stockCount) || 0);
+  const price = Number(input.price);
+  const comparePrice = input.comparePrice ? Number(input.comparePrice) : null;
 
-  memoryProducts.set(newProduct.id, newProduct);
-  memoryProducts.set(newProduct.slug, newProduct);
+  try {
+    // Upsert Category & Brand before transaction for speed
+    const category = await prisma.category.upsert({
+      where: { slug: categorySlug },
+      create: {
+        name: categoryName,
+        slug: categorySlug,
+        description: `Pharmacy category: ${categoryName}`,
+      },
+      update: {},
+    });
 
-  return newProduct;
+    let brand: any = null;
+    if (brandName) {
+      brand = await prisma.brand.upsert({
+        where: { slug: brandSlug },
+        create: {
+          name: brandName,
+          slug: brandSlug,
+        },
+        update: {},
+      });
+    }
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Create Product
+        const product = await tx.product.create({
+          data: {
+            name: input.name.trim(),
+            slug: cleanSlug,
+            genericName: input.genericName?.trim() || null,
+            packSize: input.packSize.trim(),
+            price: price,
+            comparePrice: comparePrice,
+            sku: cleanSku,
+            requiresPrescription: Boolean(input.requiresPrescription),
+            description: input.description.trim(),
+            composition: input.composition?.trim() || null,
+            usageInfo: input.usageInfo?.trim() || null,
+            warnings: input.warnings?.trim() || null,
+            storageInfo: input.storageInfo?.trim() || null,
+            manufacturer: input.manufacturer.trim(),
+            isFeatured: Boolean(input.isFeatured),
+            isActive: true,
+            categoryId: category.id,
+            brandId: brand ? brand.id : null,
+            ...(input.image?.trim()
+              ? {
+                  images: {
+                    create: {
+                      url: input.image.trim(),
+                      altText: input.name.trim(),
+                      isPrimary: true,
+                    },
+                  },
+                }
+              : {}),
+          },
+          include: {
+            category: true,
+            brand: true,
+            images: true,
+          },
+        });
+
+        // Create Inventory record
+        await tx.inventory.create({
+          data: {
+            productId: product.id,
+            totalStock: initialStock,
+            minStockAlert: 10,
+          },
+        });
+
+        // If initial stock > 0, create initial Batch & StockTransaction
+        if (initialStock > 0) {
+          const now = new Date();
+          const exp = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+          const batchNumber = `INIT-${cleanSku}`;
+          const purchasePrice = Math.round(price * 0.7 * 100) / 100;
+
+          const batch = await tx.batch.create({
+            data: {
+              productId: product.id,
+              batchNumber,
+              manufacturingDate: now,
+              expiryDate: exp,
+              purchasePrice,
+              sellingPrice: price,
+              quantity: initialStock,
+              initialQuantity: initialStock,
+              isLocked: false,
+            },
+          });
+
+          await tx.stockTransaction.create({
+            data: {
+              productId: product.id,
+              batchId: batch.id,
+              type: "PURCHASE",
+              quantity: initialStock,
+              balanceAfter: initialStock,
+              referenceId: "INITIAL-STOCK",
+              performedBy: "admin@saadmedicalstore.com",
+              notes: `Initial stock intake of ${initialStock} units upon product creation`,
+            },
+          });
+        }
+
+        return product;
+      },
+      {
+        maxWait: 15000,
+        timeout: 30000,
+      }
+    );
+
+    const createdDetail = formatDbProductToDetail(result, initialStock);
+    memoryProducts.set(createdDetail.id, createdDetail);
+    memoryProducts.set(createdDetail.slug, createdDetail);
+    return createdDetail;
+  } catch (err: any) {
+    if (err.message && err.message.includes("already exists")) {
+      throw err;
+    }
+    // Fallback to memory
+    const newProduct: ProductDetail = {
+      id: `prod-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: input.name.trim(),
+      slug: cleanSlug,
+      genericName: input.genericName?.trim() || undefined,
+      brand: brandName,
+      brandSlug,
+      category: categoryName,
+      categorySlug,
+      packSize: input.packSize.trim(),
+      price: input.price,
+      comparePrice: input.comparePrice || undefined,
+      sku: cleanSku,
+      stockStatus: input.stockStatus || "IN_STOCK",
+      stockCount: initialStock,
+      requiresPrescription: Boolean(input.requiresPrescription),
+      isFeatured: Boolean(input.isFeatured),
+      description: input.description.trim(),
+      composition: input.composition?.trim() || undefined,
+      usageInfo: input.usageInfo?.trim() || undefined,
+      warnings: input.warnings?.trim() || undefined,
+      storageInfo: input.storageInfo?.trim() || undefined,
+      manufacturer: input.manufacturer.trim(),
+      image: input.image?.trim() || undefined,
+    };
+    memoryProducts.set(newProduct.id, newProduct);
+    memoryProducts.set(newProduct.slug, newProduct);
+    return newProduct;
+  }
 }
 
-export function updateAdminProduct(idOrSlug: string, input: Partial<AdminProductInput>): ProductDetail {
-  const existing = memoryProducts.get(idOrSlug);
-  if (!existing) {
+export async function updateAdminProduct(
+  idOrSlug: string,
+  input: Partial<AdminProductInput>
+): Promise<ProductDetail> {
+  // 1. Try PostgreSQL update first
+  try {
+    const existing = await prisma.product.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+      },
+      include: {
+        category: true,
+        brand: true,
+        inventory: true,
+        batches: {
+          where: { isLocked: false },
+          orderBy: { expiryDate: "asc" },
+        },
+        images: true,
+      },
+    });
+
+    if (existing) {
+      // Check slug / SKU uniqueness
+      if (input.slug && input.slug.trim().toLowerCase() !== existing.slug) {
+        const slugConflict = await prisma.product.findFirst({
+          where: {
+            slug: input.slug.trim().toLowerCase(),
+            id: { not: existing.id },
+          },
+        });
+        if (slugConflict) {
+          throw new Error(`A product with the slug "${input.slug}" already exists.`);
+        }
+      }
+
+      if (input.sku && input.sku.trim().toUpperCase() !== existing.sku) {
+        const skuConflict = await prisma.product.findFirst({
+          where: {
+            sku: input.sku.trim().toUpperCase(),
+            id: { not: existing.id },
+          },
+        });
+        if (skuConflict) {
+          throw new Error(`A product with the SKU "${input.sku}" already exists.`);
+        }
+      }
+
+      // Resolve category & brand
+      let categoryId = existing.categoryId;
+      if (input.category && input.category.trim() !== existing.category.name) {
+        const catName = input.category.trim();
+        const catSlug =
+          catName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "general";
+        const cat = await prisma.category.upsert({
+          where: { slug: catSlug },
+          create: { name: catName, slug: catSlug, description: `Pharmacy category: ${catName}` },
+          update: {},
+        });
+        categoryId = cat.id;
+      }
+
+      let brandId = existing.brandId;
+      if (input.brand !== undefined) {
+        if (input.brand && input.brand.trim()) {
+          const bName = input.brand.trim();
+          const bSlug =
+            bName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "generic";
+          const b = await prisma.brand.upsert({
+            where: { slug: bSlug },
+            create: { name: bName, slug: bSlug },
+            update: {},
+          });
+          brandId = b.id;
+        } else {
+          brandId = null;
+        }
+      }
+
+      // Stock adjustment calculation
+      const currentStock =
+        existing.inventory?.totalStock ??
+        existing.batches.reduce((s, b) => s + b.quantity, 0);
+      const newStockCount =
+        input.stockCount !== undefined ? Math.max(0, Number(input.stockCount)) : currentStock;
+      const stockDelta = newStockCount - currentStock;
+
+      const updated = await prisma.$transaction(async (tx) => {
+        // Apply stock adjustment if changed
+        if (input.stockCount !== undefined && stockDelta !== 0) {
+          if (stockDelta > 0) {
+            // Stock increase: increment active batch or create new batch
+            let targetBatch = existing.batches[0];
+            if (targetBatch) {
+              await tx.batch.update({
+                where: { id: targetBatch.id },
+                data: {
+                  quantity: { increment: stockDelta },
+                  initialQuantity: { increment: stockDelta },
+                },
+              });
+            } else {
+              const now = new Date();
+              const exp = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+              const newBatch = await tx.batch.create({
+                data: {
+                  productId: existing.id,
+                  batchNumber: `ADJ-${existing.sku}-${Date.now().toString().slice(-4)}`,
+                  manufacturingDate: now,
+                  expiryDate: exp,
+                  purchasePrice:
+                    Math.round(Number(input.price || existing.price) * 0.7 * 100) / 100,
+                  sellingPrice: Number(input.price || existing.price),
+                  quantity: stockDelta,
+                  initialQuantity: stockDelta,
+                  isLocked: false,
+                },
+              });
+              targetBatch = newBatch;
+            }
+
+            await tx.inventory.upsert({
+              where: { productId: existing.id },
+              create: {
+                productId: existing.id,
+                totalStock: newStockCount,
+                minStockAlert: 10,
+              },
+              update: {
+                totalStock: newStockCount,
+              },
+            });
+
+            await tx.stockTransaction.create({
+              data: {
+                productId: existing.id,
+                batchId: targetBatch.id,
+                type: "ADJUSTMENT_IN",
+                quantity: stockDelta,
+                balanceAfter: newStockCount,
+                referenceId: "PROD-EDIT-STOCK",
+                performedBy: "admin@saadmedicalstore.com",
+                notes: `Stock increased via product edit (+${stockDelta} units)`,
+              },
+            });
+          } else {
+            // Stock decrease (stockDelta < 0)
+            let remainingToDeduct = Math.abs(stockDelta);
+            for (const batch of existing.batches) {
+              if (remainingToDeduct <= 0) break;
+              const deductAmount = Math.min(batch.quantity, remainingToDeduct);
+              if (deductAmount > 0) {
+                await tx.batch.update({
+                  where: { id: batch.id },
+                  data: {
+                    quantity: { decrement: deductAmount },
+                  },
+                });
+                remainingToDeduct -= deductAmount;
+              }
+            }
+
+            await tx.inventory.upsert({
+              where: { productId: existing.id },
+              create: {
+                productId: existing.id,
+                totalStock: newStockCount,
+                minStockAlert: 10,
+              },
+              update: {
+                totalStock: newStockCount,
+              },
+            });
+
+            await tx.stockTransaction.create({
+              data: {
+                productId: existing.id,
+                type: "ADJUSTMENT_OUT",
+                quantity: stockDelta,
+                balanceAfter: newStockCount,
+                referenceId: "PROD-EDIT-STOCK",
+                performedBy: "admin@saadmedicalstore.com",
+                notes: `Stock decreased via product edit (${stockDelta} units)`,
+              },
+            });
+          }
+        }
+
+        // Update product details
+        const prodUpdate = await tx.product.update({
+          where: { id: existing.id },
+          data: {
+            name: input.name !== undefined ? input.name.trim() : undefined,
+            slug: input.slug !== undefined ? input.slug.trim().toLowerCase() : undefined,
+            genericName:
+              input.genericName !== undefined
+                ? input.genericName?.trim() || null
+                : undefined,
+            packSize: input.packSize !== undefined ? input.packSize.trim() : undefined,
+            price: input.price !== undefined ? Number(input.price) : undefined,
+            comparePrice:
+              input.comparePrice !== undefined
+                ? input.comparePrice
+                  ? Number(input.comparePrice)
+                  : null
+                : undefined,
+            sku: input.sku !== undefined ? input.sku.trim().toUpperCase() : undefined,
+            requiresPrescription:
+              input.requiresPrescription !== undefined
+                ? Boolean(input.requiresPrescription)
+                : undefined,
+            isFeatured:
+              input.isFeatured !== undefined ? Boolean(input.isFeatured) : undefined,
+            description: input.description !== undefined ? input.description.trim() : undefined,
+            composition:
+              input.composition !== undefined
+                ? input.composition?.trim() || null
+                : undefined,
+            usageInfo:
+              input.usageInfo !== undefined ? input.usageInfo?.trim() || null : undefined,
+            warnings:
+              input.warnings !== undefined ? input.warnings?.trim() || null : undefined,
+            storageInfo:
+              input.storageInfo !== undefined ? input.storageInfo?.trim() || null : undefined,
+            manufacturer:
+              input.manufacturer !== undefined ? input.manufacturer.trim() : undefined,
+            categoryId,
+            brandId,
+            ...(input.image !== undefined
+              ? {
+                  images: {
+                    deleteMany: {},
+                    ...(input.image?.trim()
+                      ? {
+                          create: {
+                            url: input.image.trim(),
+                            altText: input.name || existing.name,
+                            isPrimary: true,
+                          },
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+          },
+          include: {
+            category: true,
+            brand: true,
+            inventory: true,
+            batches: true,
+            images: true,
+          },
+        });
+
+        return prodUpdate;
+      },
+      {
+        maxWait: 15000,
+        timeout: 30000,
+      });
+
+      const updatedDetail = formatDbProductToDetail(updated, newStockCount);
+      if (existing.slug !== updatedDetail.slug) {
+        memoryProducts.delete(existing.slug);
+      }
+      memoryProducts.set(updatedDetail.id, updatedDetail);
+      memoryProducts.set(updatedDetail.slug, updatedDetail);
+      return updatedDetail;
+    }
+  } catch (err: any) {
+    if (
+      err.message &&
+      (err.message.includes("already exists") || err.message.includes("Cannot delete"))
+    ) {
+      throw err;
+    }
+  }
+
+  // Fallback to memory
+  const memExisting = memoryProducts.get(idOrSlug);
+  if (!memExisting) {
     throw new Error("Product not found");
   }
 
-  if (input.slug && input.slug !== existing.slug) {
+  if (input.slug && input.slug !== memExisting.slug) {
     const slugConflict = memoryProducts.get(input.slug);
-    if (slugConflict && slugConflict.id !== existing.id) {
+    if (slugConflict && slugConflict.id !== memExisting.id) {
       throw new Error(`A product with the slug "${input.slug}" already exists.`);
     }
   }
 
-  const categorySlug = input.category ? input.category.toLowerCase().replace(/\s+/g, "-") : existing.categorySlug;
-  const brandSlug = input.brand ? input.brand.toLowerCase().replace(/\s+/g, "-") : existing.brandSlug;
+  const categorySlug = input.category
+    ? input.category.toLowerCase().replace(/\s+/g, "-")
+    : memExisting.categorySlug;
+  const brandSlug = input.brand
+    ? input.brand.toLowerCase().replace(/\s+/g, "-")
+    : memExisting.brandSlug;
 
   const updated: ProductDetail = {
-    ...existing,
-    name: input.name !== undefined ? input.name.trim() : existing.name,
-    slug: input.slug !== undefined ? input.slug.trim() : existing.slug,
-    genericName: input.genericName !== undefined ? (input.genericName?.trim() || undefined) : existing.genericName,
-    brand: input.brand !== undefined ? input.brand.trim() : existing.brand,
+    ...memExisting,
+    name: input.name !== undefined ? input.name.trim() : memExisting.name,
+    slug: input.slug !== undefined ? input.slug.trim() : memExisting.slug,
+    genericName:
+      input.genericName !== undefined
+        ? input.genericName?.trim() || undefined
+        : memExisting.genericName,
+    brand: input.brand !== undefined ? input.brand.trim() : memExisting.brand,
     brandSlug,
-    category: input.category !== undefined ? input.category.trim() : existing.category,
+    category: input.category !== undefined ? input.category.trim() : memExisting.category,
     categorySlug,
-    packSize: input.packSize !== undefined ? input.packSize.trim() : existing.packSize,
-    price: input.price !== undefined ? input.price : existing.price,
-    comparePrice: input.comparePrice !== undefined ? (input.comparePrice || undefined) : existing.comparePrice,
-    sku: input.sku !== undefined ? input.sku.trim().toUpperCase() : existing.sku,
-    stockStatus: input.stockStatus !== undefined ? input.stockStatus : existing.stockStatus,
-    stockCount: input.stockCount !== undefined ? input.stockCount : existing.stockCount,
-    requiresPrescription: input.requiresPrescription !== undefined ? input.requiresPrescription : existing.requiresPrescription,
-    isFeatured: input.isFeatured !== undefined ? input.isFeatured : existing.isFeatured,
-    description: input.description !== undefined ? input.description.trim() : existing.description,
-    composition: input.composition !== undefined ? (input.composition?.trim() || undefined) : existing.composition,
-    usageInfo: input.usageInfo !== undefined ? (input.usageInfo?.trim() || undefined) : existing.usageInfo,
-    warnings: input.warnings !== undefined ? (input.warnings?.trim() || undefined) : existing.warnings,
-    storageInfo: input.storageInfo !== undefined ? (input.storageInfo?.trim() || undefined) : existing.storageInfo,
-    manufacturer: input.manufacturer !== undefined ? input.manufacturer.trim() : existing.manufacturer,
-    image: input.image !== undefined ? (input.image?.trim() || undefined) : existing.image,
+    packSize: input.packSize !== undefined ? input.packSize.trim() : memExisting.packSize,
+    price: input.price !== undefined ? input.price : memExisting.price,
+    comparePrice:
+      input.comparePrice !== undefined
+        ? input.comparePrice || undefined
+        : memExisting.comparePrice,
+    sku: input.sku !== undefined ? input.sku.trim().toUpperCase() : memExisting.sku,
+    stockStatus: input.stockStatus !== undefined ? input.stockStatus : memExisting.stockStatus,
+    stockCount: input.stockCount !== undefined ? input.stockCount : memExisting.stockCount,
+    requiresPrescription:
+      input.requiresPrescription !== undefined
+        ? input.requiresPrescription
+        : memExisting.requiresPrescription,
+    isFeatured: input.isFeatured !== undefined ? input.isFeatured : memExisting.isFeatured,
+    description: input.description !== undefined ? input.description.trim() : memExisting.description,
+    composition:
+      input.composition !== undefined
+        ? input.composition?.trim() || undefined
+        : memExisting.composition,
+    usageInfo:
+      input.usageInfo !== undefined ? input.usageInfo?.trim() || undefined : memExisting.usageInfo,
+    warnings:
+      input.warnings !== undefined ? input.warnings?.trim() || undefined : memExisting.warnings,
+    storageInfo:
+      input.storageInfo !== undefined
+        ? input.storageInfo?.trim() || undefined
+        : memExisting.storageInfo,
+    manufacturer:
+      input.manufacturer !== undefined ? input.manufacturer.trim() : memExisting.manufacturer,
+    image: input.image !== undefined ? input.image?.trim() || undefined : memExisting.image,
   };
 
-  // Update indexes
-  if (existing.slug !== updated.slug) {
-    memoryProducts.delete(existing.slug);
+  if (memExisting.slug !== updated.slug) {
+    memoryProducts.delete(memExisting.slug);
   }
   memoryProducts.set(updated.id, updated);
   memoryProducts.set(updated.slug, updated);
@@ -636,45 +1335,149 @@ export function updateAdminProduct(idOrSlug: string, input: Partial<AdminProduct
   return updated;
 }
 
-export function deleteAdminProduct(idOrSlug: string): { success: boolean; message: string } {
-  const existing = memoryProducts.get(idOrSlug);
-  if (!existing) {
+export async function deleteAdminProduct(
+  idOrSlug: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const existing = await prisma.product.findFirst({
+      where: {
+        OR: [{ id: idOrSlug }, { slug: idOrSlug }],
+      },
+    });
+
+    if (existing) {
+      // 1. Safety check: Protect historical order history
+      const orderItemsCount = await prisma.orderItem.count({
+        where: { productId: existing.id },
+      });
+
+      if (orderItemsCount > 0) {
+        throw new Error(
+          `Cannot delete product "${existing.name}" because it is referenced in ${orderItemsCount} historical customer order(s). To discontinue this item without destroying order history, edit the product and set its stock to 0 or mark it inactive.`
+        );
+      }
+
+      // 2. Safe to delete: Delete product in PostgreSQL
+      // Related records (inventory, batches, stockTransactions, productImages, cartItems, wishlistItems) cascade delete
+      await prisma.product.delete({
+        where: { id: existing.id },
+      });
+
+      memoryProducts.delete(existing.id);
+      memoryProducts.delete(existing.slug);
+
+      return {
+        success: true,
+        message: `Product "${existing.name}" deleted successfully from database.`,
+      };
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes("Cannot delete product")) {
+      throw err;
+    }
+  }
+
+  // Memory fallback
+  const memExisting = memoryProducts.get(idOrSlug);
+  if (!memExisting) {
     throw new Error("Product not found");
   }
 
-  memoryProducts.delete(existing.id);
-  memoryProducts.delete(existing.slug);
+  memoryProducts.delete(memExisting.id);
+  memoryProducts.delete(memExisting.slug);
 
-  return { success: true, message: `Product "${existing.name}" deleted successfully.` };
+  return { success: true, message: `Product "${memExisting.name}" deleted successfully.` };
 }
 
 // -------------------------------------------------------------
 // 5. CATEGORY MANAGEMENT
 // -------------------------------------------------------------
-export function getAdminCategoriesList() {
+export async function getAdminCategoriesList() {
+  try {
+    const dbCategories = await prisma.category.findMany({
+      include: {
+        products: {
+          select: { id: true },
+        },
+      },
+      orderBy: { displayOrder: "asc" },
+    });
+
+    if (dbCategories && dbCategories.length > 0) {
+      return dbCategories.map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        slug: cat.slug,
+        description: cat.description || undefined,
+        image: cat.image || undefined,
+        displayOrder: cat.displayOrder,
+        isActive: cat.isActive,
+        productCount: cat.products.length,
+      }));
+    }
+  } catch (err) {
+    // Fallback
+  }
+
   const uniqueCategories = Array.from(memoryCategories.values()).filter(
     (c, idx, arr) => arr.findIndex((x) => x.id === c.id) === idx
   );
-  
-  const products = getAdminProductsListRaw();
+
+  const products = await getAdminProductsListRaw();
   return uniqueCategories.map((cat) => ({
     ...cat,
     productCount: products.filter(
-      (p) => p.categorySlug.toLowerCase() === cat.slug.toLowerCase() || p.category.toLowerCase() === cat.name.toLowerCase()
+      (p) =>
+        p.categorySlug.toLowerCase() === cat.slug.toLowerCase() ||
+        p.category.toLowerCase() === cat.name.toLowerCase()
     ).length,
   }));
 }
 
-export function createAdminCategory(input: AdminCategoryInput) {
-  const existing = memoryCategories.get(input.slug);
+export async function createAdminCategory(input: AdminCategoryInput) {
+  const slug = input.slug.trim().toLowerCase();
+  try {
+    const existing = await prisma.category.findUnique({ where: { slug } });
+    if (existing) {
+      throw new Error(`Category with slug "${input.slug}" already exists.`);
+    }
+
+    const created = await prisma.category.create({
+      data: {
+        name: input.name.trim(),
+        slug,
+        description: input.description?.trim() || null,
+        image: input.image?.trim() || null,
+        displayOrder: input.displayOrder || 0,
+        isActive: input.isActive ?? true,
+      },
+    });
+
+    const catObj = {
+      id: created.id,
+      name: created.name,
+      slug: created.slug,
+      description: created.description || undefined,
+      image: created.image || undefined,
+      displayOrder: created.displayOrder,
+      isActive: created.isActive,
+    };
+    memoryCategories.set(catObj.id, catObj);
+    memoryCategories.set(catObj.slug, catObj);
+    return catObj;
+  } catch (err: any) {
+    if (err.message && err.message.includes("already exists")) throw err;
+  }
+
+  const existing = memoryCategories.get(slug);
   if (existing) {
     throw new Error(`Category with slug "${input.slug}" already exists.`);
   }
 
   const newCat = {
-    id: `cat-${input.slug}`,
+    id: `cat-${slug}`,
     name: input.name.trim(),
-    slug: input.slug.trim(),
+    slug,
     description: input.description?.trim() || undefined,
     image: input.image?.trim() || undefined,
     displayOrder: input.displayOrder || 0,
@@ -687,7 +1490,56 @@ export function createAdminCategory(input: AdminCategoryInput) {
   return newCat;
 }
 
-export function updateAdminCategory(idOrSlug: string, input: Partial<AdminCategoryInput>) {
+export async function updateAdminCategory(idOrSlug: string, input: Partial<AdminCategoryInput>) {
+  try {
+    const existing = await prisma.category.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+    });
+
+    if (existing) {
+      if (input.slug && input.slug.trim().toLowerCase() !== existing.slug) {
+        const slugConflict = await prisma.category.findUnique({
+          where: { slug: input.slug.trim().toLowerCase() },
+        });
+        if (slugConflict && slugConflict.id !== existing.id) {
+          throw new Error(`Category with slug "${input.slug}" already exists.`);
+        }
+      }
+
+      const updated = await prisma.category.update({
+        where: { id: existing.id },
+        data: {
+          name: input.name !== undefined ? input.name.trim() : undefined,
+          slug: input.slug !== undefined ? input.slug.trim().toLowerCase() : undefined,
+          description:
+            input.description !== undefined ? input.description?.trim() || null : undefined,
+          image: input.image !== undefined ? input.image?.trim() || null : undefined,
+          displayOrder: input.displayOrder !== undefined ? input.displayOrder : undefined,
+          isActive: input.isActive !== undefined ? input.isActive : undefined,
+        },
+      });
+
+      const catObj = {
+        id: updated.id,
+        name: updated.name,
+        slug: updated.slug,
+        description: updated.description || undefined,
+        image: updated.image || undefined,
+        displayOrder: updated.displayOrder,
+        isActive: updated.isActive,
+      };
+
+      if (existing.slug !== catObj.slug) {
+        memoryCategories.delete(existing.slug);
+      }
+      memoryCategories.set(catObj.id, catObj);
+      memoryCategories.set(catObj.slug, catObj);
+      return catObj;
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes("already exists")) throw err;
+  }
+
   const existing = memoryCategories.get(idOrSlug);
   if (!existing) {
     throw new Error("Category not found");
@@ -697,8 +1549,11 @@ export function updateAdminCategory(idOrSlug: string, input: Partial<AdminCatego
     ...existing,
     name: input.name !== undefined ? input.name.trim() : existing.name,
     slug: input.slug !== undefined ? input.slug.trim() : existing.slug,
-    description: input.description !== undefined ? (input.description?.trim() || undefined) : existing.description,
-    image: input.image !== undefined ? (input.image?.trim() || undefined) : existing.image,
+    description:
+      input.description !== undefined
+        ? input.description?.trim() || undefined
+        : existing.description,
+    image: input.image !== undefined ? input.image?.trim() || undefined : existing.image,
     displayOrder: input.displayOrder !== undefined ? input.displayOrder : existing.displayOrder,
     isActive: input.isActive !== undefined ? input.isActive : existing.isActive,
   };
@@ -712,16 +1567,44 @@ export function updateAdminCategory(idOrSlug: string, input: Partial<AdminCatego
   return updated;
 }
 
-export function deleteAdminCategory(idOrSlug: string) {
+export async function deleteAdminCategory(idOrSlug: string) {
+  try {
+    const existing = await prisma.category.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      include: { products: { select: { id: true } } },
+    });
+
+    if (existing) {
+      if (existing.products.length > 0) {
+        throw new Error(
+          `Cannot delete category "${existing.name}" because ${existing.products.length} product(s) are currently assigned to it. Please reassign or delete these products first.`
+        );
+      }
+
+      await prisma.category.delete({
+        where: { id: existing.id },
+      });
+
+      memoryCategories.delete(existing.id);
+      memoryCategories.delete(existing.slug);
+
+      return { success: true, message: `Category "${existing.name}" deleted successfully.` };
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes("Cannot delete category")) throw err;
+  }
+
   const existing = memoryCategories.get(idOrSlug);
   if (!existing) {
     throw new Error("Category not found");
   }
 
   // Safe deletion check: Check product dependencies
-  const products = getAdminProductsListRaw();
+  const products = await getAdminProductsListRaw();
   const linkedProducts = products.filter(
-    (p) => p.categorySlug.toLowerCase() === existing.slug.toLowerCase() || p.category.toLowerCase() === existing.name.toLowerCase()
+    (p) =>
+      p.categorySlug.toLowerCase() === existing.slug.toLowerCase() ||
+      p.category.toLowerCase() === existing.name.toLowerCase()
   );
 
   if (linkedProducts.length > 0) {
@@ -739,30 +1622,83 @@ export function deleteAdminCategory(idOrSlug: string) {
 // -------------------------------------------------------------
 // 6. BRAND MANAGEMENT
 // -------------------------------------------------------------
-export function getAdminBrandsList() {
+export async function getAdminBrandsList() {
+  try {
+    const dbBrands = await prisma.brand.findMany({
+      include: {
+        products: {
+          select: { id: true },
+        },
+      },
+      orderBy: { name: "asc" },
+    });
+
+    if (dbBrands && dbBrands.length > 0) {
+      return dbBrands.map((brand) => ({
+        id: brand.id,
+        name: brand.name,
+        slug: brand.slug,
+        logo: brand.logo || undefined,
+        productCount: brand.products.length,
+      }));
+    }
+  } catch (err) {
+    // Fallback
+  }
+
   const uniqueBrands = Array.from(memoryBrands.values()).filter(
     (b, idx, arr) => arr.findIndex((x) => x.id === b.id) === idx
   );
 
-  const products = getAdminProductsListRaw();
+  const products = await getAdminProductsListRaw();
   return uniqueBrands.map((brand) => ({
     ...brand,
     productCount: products.filter(
-      (p) => p.brandSlug.toLowerCase() === brand.slug.toLowerCase() || p.brand.toLowerCase() === brand.name.toLowerCase()
+      (p) =>
+        p.brandSlug.toLowerCase() === brand.slug.toLowerCase() ||
+        p.brand.toLowerCase() === brand.name.toLowerCase()
     ).length,
   }));
 }
 
-export function createAdminBrand(input: AdminBrandInput) {
-  const existing = memoryBrands.get(input.slug);
+export async function createAdminBrand(input: AdminBrandInput) {
+  const slug = input.slug.trim().toLowerCase();
+  try {
+    const existing = await prisma.brand.findUnique({ where: { slug } });
+    if (existing) {
+      throw new Error(`Brand with slug "${input.slug}" already exists.`);
+    }
+
+    const created = await prisma.brand.create({
+      data: {
+        name: input.name.trim(),
+        slug,
+        logo: input.logo?.trim() || null,
+      },
+    });
+
+    const brandObj = {
+      id: created.id,
+      name: created.name,
+      slug: created.slug,
+      logo: created.logo || undefined,
+    };
+    memoryBrands.set(brandObj.id, brandObj);
+    memoryBrands.set(brandObj.slug, brandObj);
+    return brandObj;
+  } catch (err: any) {
+    if (err.message && err.message.includes("already exists")) throw err;
+  }
+
+  const existing = memoryBrands.get(slug);
   if (existing) {
     throw new Error(`Brand with slug "${input.slug}" already exists.`);
   }
 
   const newBrand = {
-    id: `brand-${input.slug}`,
+    id: `brand-${slug}`,
     name: input.name.trim(),
-    slug: input.slug.trim(),
+    slug,
     logo: input.logo?.trim() || undefined,
   };
 
@@ -772,7 +1708,49 @@ export function createAdminBrand(input: AdminBrandInput) {
   return newBrand;
 }
 
-export function updateAdminBrand(idOrSlug: string, input: Partial<AdminBrandInput>) {
+export async function updateAdminBrand(idOrSlug: string, input: Partial<AdminBrandInput>) {
+  try {
+    const existing = await prisma.brand.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+    });
+
+    if (existing) {
+      if (input.slug && input.slug.trim().toLowerCase() !== existing.slug) {
+        const slugConflict = await prisma.brand.findUnique({
+          where: { slug: input.slug.trim().toLowerCase() },
+        });
+        if (slugConflict && slugConflict.id !== existing.id) {
+          throw new Error(`Brand with slug "${input.slug}" already exists.`);
+        }
+      }
+
+      const updated = await prisma.brand.update({
+        where: { id: existing.id },
+        data: {
+          name: input.name !== undefined ? input.name.trim() : undefined,
+          slug: input.slug !== undefined ? input.slug.trim().toLowerCase() : undefined,
+          logo: input.logo !== undefined ? input.logo?.trim() || null : undefined,
+        },
+      });
+
+      const brandObj = {
+        id: updated.id,
+        name: updated.name,
+        slug: updated.slug,
+        logo: updated.logo || undefined,
+      };
+
+      if (existing.slug !== brandObj.slug) {
+        memoryBrands.delete(existing.slug);
+      }
+      memoryBrands.set(brandObj.id, brandObj);
+      memoryBrands.set(brandObj.slug, brandObj);
+      return brandObj;
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes("already exists")) throw err;
+  }
+
   const existing = memoryBrands.get(idOrSlug);
   if (!existing) {
     throw new Error("Brand not found");
@@ -782,7 +1760,7 @@ export function updateAdminBrand(idOrSlug: string, input: Partial<AdminBrandInpu
     ...existing,
     name: input.name !== undefined ? input.name.trim() : existing.name,
     slug: input.slug !== undefined ? input.slug.trim() : existing.slug,
-    logo: input.logo !== undefined ? (input.logo?.trim() || undefined) : existing.logo,
+    logo: input.logo !== undefined ? input.logo?.trim() || undefined : existing.logo,
   };
 
   if (existing.slug !== updated.slug) {
@@ -794,16 +1772,44 @@ export function updateAdminBrand(idOrSlug: string, input: Partial<AdminBrandInpu
   return updated;
 }
 
-export function deleteAdminBrand(idOrSlug: string) {
+export async function deleteAdminBrand(idOrSlug: string) {
+  try {
+    const existing = await prisma.brand.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      include: { products: { select: { id: true } } },
+    });
+
+    if (existing) {
+      if (existing.products.length > 0) {
+        throw new Error(
+          `Cannot delete brand "${existing.name}" because ${existing.products.length} product(s) are currently associated with it. Please reassign or delete these products first.`
+        );
+      }
+
+      await prisma.brand.delete({
+        where: { id: existing.id },
+      });
+
+      memoryBrands.delete(existing.id);
+      memoryBrands.delete(existing.slug);
+
+      return { success: true, message: `Brand "${existing.name}" deleted successfully.` };
+    }
+  } catch (err: any) {
+    if (err.message && err.message.includes("Cannot delete brand")) throw err;
+  }
+
   const existing = memoryBrands.get(idOrSlug);
   if (!existing) {
     throw new Error("Brand not found");
   }
 
   // Safe deletion check: Check product dependencies
-  const products = getAdminProductsListRaw();
+  const products = await getAdminProductsListRaw();
   const linkedProducts = products.filter(
-    (p) => p.brandSlug.toLowerCase() === existing.slug.toLowerCase() || p.brand.toLowerCase() === existing.name.toLowerCase()
+    (p) =>
+      p.brandSlug.toLowerCase() === existing.slug.toLowerCase() ||
+      p.brand.toLowerCase() === existing.name.toLowerCase()
   );
 
   if (linkedProducts.length > 0) {

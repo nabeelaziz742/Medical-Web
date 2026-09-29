@@ -255,6 +255,8 @@ model Order {
   shippingAddressId String?
   shippingAddress   Address?       @relation(fields: [shippingAddressId], references: [id])
   deliveryAddress   String
+  deliveryArea      String?
+  deliveryNotes     String?
   deliveryMethod    String         @default("HOME_DELIVERY")
   status            OrderStatus    @default(PENDING)
   paymentStatus     PaymentStatus  @default(PENDING)

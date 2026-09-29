@@ -341,11 +341,30 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
               </div>
 
               <div className="pt-2 border-t border-slate-100 space-y-1">
-                <span className="text-slate-400 font-semibold uppercase text-[10px]">Delivery Address</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Delivery Address</span>
+                  {order.deliveryArea && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-800">
+                      {order.deliveryArea}
+                    </span>
+                  )}
+                </div>
                 <p className="font-semibold text-slate-800 leading-relaxed">
                   {order.deliveryAddress}
                 </p>
+                {order.deliveryArea && (
+                  <p className="text-[11px] text-slate-500">Area: {order.deliveryArea}, Lahore</p>
+                )}
               </div>
+
+              {order.deliveryNotes && (
+                <div className="pt-2 border-t border-slate-100 space-y-1">
+                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Delivery Instructions</span>
+                  <p className="text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-200 italic">
+                    &quot;{order.deliveryNotes}&quot;
+                  </p>
+                </div>
+              )}
 
               <div className="pt-2 border-t border-slate-100 space-y-1">
                 <span className="text-slate-400 font-semibold uppercase text-[10px]">Payment Method</span>
@@ -353,13 +372,6 @@ export function OrderTrackingView({ orderId }: OrderTrackingViewProps) {
                   {order.paymentMethod === "CASH_ON_DELIVERY" ? "Cash on Delivery" : "Direct Bank Transfer"}
                 </p>
               </div>
-
-              {order.internalNotes && (
-                <div className="pt-2 border-t border-slate-100 space-y-1">
-                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Instructions</span>
-                  <p className="text-slate-600 italic">{order.internalNotes}</p>
-                </div>
-              )}
             </div>
           </div>
 

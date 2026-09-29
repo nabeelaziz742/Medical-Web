@@ -128,8 +128,8 @@ export default function AccountOrdersPage() {
                   <p className="font-medium text-slate-700">
                     {order.items.length} {order.items.length === 1 ? "Item" : "Items"} • {order.deliveryMethod === "HOME_DELIVERY" ? "Home Delivery (Lahore)" : "Store Pickup"}
                   </p>
-                  <p className="text-[11px] text-slate-400 truncate max-w-md mt-0.5">
-                    {order.deliveryAddress}
+                  <p className="text-[11px] text-slate-500 truncate max-w-md mt-0.5">
+                    {order.deliveryArea ? `${order.deliveryArea} • ` : ""}{order.deliveryAddress}
                   </p>
                 </div>
 

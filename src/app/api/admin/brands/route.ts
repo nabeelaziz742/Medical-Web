@@ -13,7 +13,7 @@ export async function GET() {
       return NextResponse.json({ error: "Forbidden. Admin privileges required." }, { status: 403 });
     }
 
-    const brands = getAdminBrandsList();
+    const brands = await getAdminBrandsList();
     return NextResponse.json({ success: true, brands });
   } catch (error: any) {
     return NextResponse.json(
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const brand = createAdminBrand(validated.data);
+    const brand = await createAdminBrand(validated.data);
 
     return NextResponse.json({
       success: true,

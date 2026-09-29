@@ -30,6 +30,8 @@ interface OrderDetail {
   customerPhone: string;
   customerEmail: string | null;
   deliveryAddress: string;
+  deliveryArea?: string | null;
+  deliveryNotes?: string | null;
   deliveryMethod: string;
   status: string;
   paymentStatus: string;
@@ -102,6 +104,38 @@ export default function AdminOrderDetailPage({
   useEffect(() => {
     fetchOrder();
   }, [id]);
+
+  const handleQuickStatus = async (status: string) => {
+    setTargetStatus(status);
+    setIsSaving(true);
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const res = await fetch(`/api/admin/orders/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,
+          paymentStatus: targetPaymentStatus,
+          internalNotes: internalNotes.trim() || null,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update order");
+      }
+
+      setOrder(data.order);
+      setSuccessMessage(`Order status updated to ${status.replace(/_/g, " ")}`);
+      setTimeout(() => setSuccessMessage(""), 4000);
+    } catch (err: any) {
+      setError(err.message || "An error occurred while saving updates.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,7 +240,7 @@ export default function AdminOrderDetailPage({
       {/* 2-Column Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Left 2 Cols: Items & Financials */}
+        {/* Left 2 Cols: Items & Financials & Delivery */}
         <div className="lg:col-span-2 space-y-6">
           
           {/* Items Table */}
@@ -274,40 +308,103 @@ export default function AdminOrderDetailPage({
             </div>
           </div>
 
-          {/* Delivery & Customer Info */}
+          {/* Delivery & Customer Info Card */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             
+            {/* Delivery Address & Area */}
             <div className="bg-slate-900/90 p-5 rounded-2xl border border-slate-800 space-y-3">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <MapPin className="h-4 w-4 text-blue-400" />
-                <span>Delivery Address</span>
-              </h3>
-              <div className="text-xs text-slate-200 space-y-1">
-                <p className="font-bold text-white">{order.customerName}</p>
-                <p className="leading-relaxed">{order.deliveryAddress}</p>
-                <p className="text-slate-400">Method: {order.deliveryMethod.replace(/_/g, " ")}</p>
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <MapPin className="h-4 w-4 text-blue-400" />
+                  <span>Delivery Address</span>
+                </h3>
+                {order.deliveryArea && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-950 text-blue-300 border border-blue-800">
+                    {order.deliveryArea}
+                  </span>
+                )}
+              </div>
+
+              <div className="text-xs text-slate-200 space-y-2">
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">Recipient</span>
+                  <p className="font-bold text-white text-sm">{order.customerName}</p>
+                </div>
+
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">Street Address</span>
+                  <p className="text-slate-200 leading-relaxed font-medium bg-slate-950/60 p-2.5 rounded-lg border border-slate-800">
+                    {order.deliveryAddress}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] pt-1 text-slate-400">
+                  <span>Area / Sector: <strong className="text-white">{order.deliveryArea || "Lahore"}</strong></span>
+                  <span>City: <strong className="text-white">Lahore</strong></span>
+                </div>
+
+                {order.deliveryNotes && (
+                  <div className="pt-2 border-t border-slate-800">
+                    <span className="text-[10px] text-amber-400 uppercase font-bold flex items-center gap-1">
+                      <FileText className="h-3 w-3" />
+                      <span>Customer Delivery Notes</span>
+                    </span>
+                    <p className="text-amber-200 bg-amber-950/40 p-2 rounded-lg border border-amber-900/50 mt-1 italic">
+                      &quot;{order.deliveryNotes}&quot;
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
+            {/* Customer Contact & Payment */}
             <div className="bg-slate-900/90 p-5 rounded-2xl border border-slate-800 space-y-3">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <CreditCard className="h-4 w-4 text-emerald-400" />
-                <span>Customer Contact & Payment</span>
-              </h3>
-              <div className="text-xs text-slate-200 space-y-1.5">
-                <p className="flex items-center gap-2">
-                  <Phone className="h-3.5 w-3.5 text-slate-400" />
-                  <span>{order.customerPhone}</span>
-                </p>
-                {order.customerEmail && (
-                  <p className="flex items-center gap-2">
-                    <Mail className="h-3.5 w-3.5 text-slate-400" />
-                    <span>{order.customerEmail}</span>
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <CreditCard className="h-4 w-4 text-emerald-400" />
+                  <span>Contact & Payment</span>
+                </h3>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-950 text-emerald-300 border border-emerald-800">
+                  {order.paymentStatus}
+                </span>
+              </div>
+
+              <div className="text-xs text-slate-200 space-y-2.5">
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">Phone Number</span>
+                  <p className="mt-0.5">
+                    <a
+                      href={`tel:${order.customerPhone}`}
+                      className="text-blue-400 hover:text-blue-300 font-bold text-sm flex items-center gap-1.5"
+                    >
+                      <Phone className="h-3.5 w-3.5" />
+                      <span>{order.customerPhone}</span>
+                    </a>
                   </p>
+                </div>
+
+                {order.customerEmail && (
+                  <div>
+                    <span className="text-[10px] text-slate-500 uppercase font-semibold">Email</span>
+                    <p className="text-slate-300 flex items-center gap-1.5 mt-0.5">
+                      <Mail className="h-3.5 w-3.5 text-slate-500" />
+                      <span>{order.customerEmail}</span>
+                    </p>
+                  </div>
                 )}
-                <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
-                  <span className="text-slate-400">Payment:</span>
-                  <span className="font-semibold text-white">{order.paymentMethod.replace(/_/g, " ")}</span>
+
+                <div className="pt-2 border-t border-slate-800">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">Payment Method</span>
+                  <p className="text-white font-semibold mt-0.5">
+                    {order.paymentMethod === "CASH_ON_DELIVERY" ? "Cash on Delivery (COD)" : "Direct Bank Transfer"}
+                  </p>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800">
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">Delivery Method</span>
+                  <p className="text-slate-300 mt-0.5">
+                    {order.deliveryMethod === "HOME_DELIVERY" ? "Home Delivery (Lahore)" : "Store Pickup"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -318,21 +415,65 @@ export default function AdminOrderDetailPage({
 
         {/* Right 1 Col: Status Transition & Admin Notes Form */}
         <div className="space-y-6">
-          <form onSubmit={handleUpdate} className="bg-slate-900/90 p-5 rounded-2xl border border-slate-800 space-y-5 shadow-lg">
-            <h2 className="text-sm font-bold text-white flex items-center gap-2 pb-3 border-b border-slate-800">
+          
+          {/* Quick Fulfillment Action Buttons */}
+          <div className="bg-slate-900/90 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
+            <h2 className="text-sm font-bold text-white flex items-center gap-2 pb-2 border-b border-slate-800">
+              <Truck className="h-4 w-4 text-blue-400" />
+              <span>Quick Status Actions</span>
+            </h2>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <button
+                type="button"
+                disabled={isSaving || order.status === "CONFIRMED"}
+                onClick={() => handleQuickStatus("CONFIRMED")}
+                className="p-2.5 rounded-xl border border-blue-700 bg-blue-950/70 hover:bg-blue-900 text-blue-300 font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                CONFIRM
+              </button>
+              <button
+                type="button"
+                disabled={isSaving || order.status === "PREPARING"}
+                onClick={() => handleQuickStatus("PREPARING")}
+                className="p-2.5 rounded-xl border border-amber-700 bg-amber-950/70 hover:bg-amber-900 text-amber-300 font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                PREPARING
+              </button>
+              <button
+                type="button"
+                disabled={isSaving || order.status === "OUT_FOR_DELIVERY"}
+                onClick={() => handleQuickStatus("OUT_FOR_DELIVERY")}
+                className="p-2.5 rounded-xl border border-purple-700 bg-purple-950/70 hover:bg-purple-900 text-purple-300 font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                OUT FOR DELIVERY
+              </button>
+              <button
+                type="button"
+                disabled={isSaving || order.status === "DELIVERED"}
+                onClick={() => handleQuickStatus("DELIVERED")}
+                className="p-2.5 rounded-xl border border-emerald-700 bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                DELIVERED
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={handleUpdate} className="bg-slate-900/90 p-5 rounded-2xl border border-slate-800 space-y-4 shadow-lg">
+            <h2 className="text-sm font-bold text-white flex items-center gap-2 pb-2 border-b border-slate-800">
               <ShieldCheck className="h-4 w-4 text-blue-400" />
-              <span>Fulfillment & Review Actions</span>
+              <span>Full Status & Pharmacy Notes</span>
             </h2>
 
             {/* Status Transition Select */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                Order Fulfillment Status
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                Fulfillment Status
               </label>
               <select
                 value={targetStatus}
                 onChange={(e) => setTargetStatus(e.target.value)}
-                className="w-full h-11 px-3 rounded-xl border border-slate-700 bg-slate-800 text-xs text-white focus:outline-none focus:border-blue-500"
+                className="w-full h-10 px-3 rounded-xl border border-slate-700 bg-slate-800 text-xs text-white focus:outline-none focus:border-blue-500"
               >
                 <option value={order.status}>Current: {order.status.replace(/_/g, " ")}</option>
                 {validTransitions.map((next) => (
@@ -341,22 +482,17 @@ export default function AdminOrderDetailPage({
                   </option>
                 ))}
               </select>
-              {validTransitions.length === 0 && (
-                <p className="text-[11px] text-slate-500 mt-1">
-                  This order is in a terminal status ({order.status}).
-                </p>
-              )}
             </div>
 
             {/* Payment Status Select */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
                 Payment Status
               </label>
               <select
                 value={targetPaymentStatus}
                 onChange={(e) => setTargetPaymentStatus(e.target.value)}
-                className="w-full h-11 px-3 rounded-xl border border-slate-700 bg-slate-800 text-xs text-white focus:outline-none focus:border-blue-500"
+                className="w-full h-10 px-3 rounded-xl border border-slate-700 bg-slate-800 text-xs text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="PENDING">PENDING</option>
                 <option value="PAID">PAID (Received)</option>
@@ -367,13 +503,13 @@ export default function AdminOrderDetailPage({
 
             {/* Internal Notes */}
             <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                Internal Pharmacy Notes
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                Pharmacy Internal Notes
               </label>
               <textarea
                 value={internalNotes}
                 onChange={(e) => setInternalNotes(e.target.value)}
-                rows={4}
+                rows={3}
                 placeholder="Rider assignment, batch tracking, or pharmacy internal notes..."
                 className="w-full p-3 rounded-xl border border-slate-700 bg-slate-800 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
               />
@@ -381,12 +517,12 @@ export default function AdminOrderDetailPage({
 
             <Button
               type="submit"
-              size="lg"
+              size="md"
               isLoading={isSaving}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-2 shadow-md"
             >
               <Save className="h-4 w-4" />
-              <span>Update Order Status</span>
+              <span>Save Changes</span>
             </Button>
           </form>
         </div>
@@ -395,3 +531,4 @@ export default function AdminOrderDetailPage({
     </div>
   );
 }
+

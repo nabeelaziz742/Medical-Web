@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "20", 10);
 
-    const data = getAdminProducts({
+    const data = await getAdminProducts({
       search,
       category,
       brand,
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const product = createAdminProduct(validated.data);
+    const product = await createAdminProduct(validated.data);
 
     return NextResponse.json({
       success: true,
