@@ -1,8 +1,17 @@
 import React from "react";
 import { notFound } from "next/navigation";
-import { getProductBySlug, getRelatedProducts } from "@/lib/catalog";
+import { getRelatedProducts } from "@/lib/catalog";
+import { getStorefrontProducts } from "@/lib/productStore";
 import { ProductDetailView } from "@/components/product/ProductDetailView";
 import { STORE_INFO } from "@/lib/constants";
+
+export const dynamic = "force-dynamic";
+
+async function findProduct(slug: string) {
+  const products = await getStorefrontProducts();
+  const product = products.find((p) => p.slug.toLowerCase() === slug.toLowerCase());
+  return { product, products };
+}
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>;
@@ -10,7 +19,7 @@ interface ProductPageProps {
 
 export async function generateMetadata({ params }: ProductPageProps) {
   const { slug } = await params;
-  const product = getProductBySlug(slug);
+  const { product } = await findProduct(slug);
 
   if (!product) {
     return {
@@ -30,13 +39,13 @@ export async function generateMetadata({ params }: ProductPageProps) {
 
 export default async function ProductDetailPage({ params }: ProductPageProps) {
   const { slug } = await params;
-  const product = getProductBySlug(slug);
+  const { product, products } = await findProduct(slug);
 
   if (!product) {
     notFound();
   }
 
-  const relatedProducts = getRelatedProducts(product, 4);
+  const relatedProducts = getRelatedProducts(product, 4, products);
 
   const productSchema = {
     "@context": "https://schema.org",

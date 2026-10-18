@@ -1,6 +1,8 @@
 import { MetadataRoute } from "next";
-import { CATALOG_PRODUCTS } from "@/data/products";
+import { getStorefrontProducts } from "@/lib/productStore";
 import { CATEGORIES_NAV } from "@/lib/constants";
+
+export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://saadmedicalstore.com";
@@ -49,7 +51,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }));
 
   // Product detail pages
-  const productRoutes: MetadataRoute.Sitemap = CATALOG_PRODUCTS.map((product) => ({
+  const productRoutes: MetadataRoute.Sitemap = (await getStorefrontProducts()).map((product) => ({
     url: `${baseUrl}/products/${product.slug}`,
     lastModified: now,
     changeFrequency: "weekly",

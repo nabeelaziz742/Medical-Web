@@ -110,30 +110,10 @@ export async function createPrescription(
       updatedAt: dbRecord.updatedAt.toISOString(),
     };
   } catch (err) {
-    // Memory fallback
-    const id = `rx-${Date.now()}`;
-    created = {
-      id,
-      prescriptionNumber,
-      userId: userId || null,
-      customerName: input.customerName.trim(),
-      customerPhone: input.customerPhone.trim(),
-      customerEmail: input.customerEmail?.trim() || null,
-      fileName: savedFile.fileName,
-      fileType: savedFile.fileType,
-      fileSize: savedFile.fileSize,
-      storageKey: savedFile.storageKey,
-      fileUrl,
-      deliveryAddress: input.deliveryAddress.trim(),
-      notes: input.notes?.trim() || null,
-      status: "PENDING",
-      rejectionReason: null,
-      adminNotes: null,
-      reviewedAt: null,
-      reviewedBy: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    // Never tell the customer the upload worked when it was not saved
+    console.error("Prescription could not be saved:", err);
+    await deletePrescriptionFile(savedFile.storageKey);
+    throw new Error("We could not save your prescription right now. Please try again in a moment.");
   }
 
   if (created) {

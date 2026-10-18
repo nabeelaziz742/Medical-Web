@@ -203,6 +203,7 @@ export function CartDrawer() {
                           </span>
                           <button
                             onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                      disabled={item.quantity >= item.product.stockCount}
                             className="p-1.5 hover:bg-slate-50 text-slate-600 cursor-pointer"
                             aria-label="Increase quantity"
                           >

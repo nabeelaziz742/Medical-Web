@@ -60,7 +60,7 @@ export default function ForgotPasswordPage() {
             </div>
             <h3 className="font-bold text-sm text-slate-900">Check Your Email</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              If an account is associated with <span className="font-semibold text-slate-900">{email}</span>, password reset instructions have been generated.
+              If an account is associated with <span className="font-semibold text-slate-900">{email}</span>, we have emailed you a reset link. Please check your inbox and spam folder.
             </p>
             <div className="pt-2">
               <Link href="/login">

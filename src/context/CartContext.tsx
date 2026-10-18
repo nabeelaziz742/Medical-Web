@@ -35,6 +35,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [amountForFreeDelivery, setAmountForFreeDelivery] = useState(2000);
   const [isLoading, setIsLoading] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [cartError, setCartError] = useState<string | null>(null);
+
+  // Show cart failures (out of stock, unavailable product) instead of failing silently
+  useEffect(() => {
+    if (!cartError) return;
+    const timer = setTimeout(() => setCartError(null), 4000);
+    return () => clearTimeout(timer);
+  }, [cartError]);
 
   const applyCartData = (data: CartSummary) => {
     setItems(data.items || []);
@@ -90,6 +98,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       return true;
     } catch (err) {
       console.error("Cart error:", err);
+      setCartError(err instanceof Error ? err.message : "Something went wrong with your cart");
       return false;
     }
   };
@@ -114,6 +123,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       return true;
     } catch (err) {
       console.error("Cart error:", err);
+      setCartError(err instanceof Error ? err.message : "Something went wrong with your cart");
       return false;
     }
   };
@@ -136,6 +146,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       return true;
     } catch (err) {
       console.error("Cart error:", err);
+      setCartError(err instanceof Error ? err.message : "Something went wrong with your cart");
       return false;
     }
   };
@@ -180,6 +191,14 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
+      {cartError && (
+        <div
+          role="alert"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] max-w-[calc(100%-2rem)] rounded-lg bg-red-600 px-4 py-3 text-sm font-medium text-white shadow-lg"
+        >
+          {cartError}
+        </div>
+      )}
     </CartContext.Provider>
   );
 }

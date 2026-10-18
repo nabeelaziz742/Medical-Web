@@ -41,18 +41,22 @@ Configure these environment variables in your deployment platform (e.g., Vercel 
 | Variable Name | Required | Description | Example / Recommended Value |
 | :--- | :--- | :--- | :--- |
 | `DATABASE_URL` | **Yes** | PostgreSQL connection string (with connection pooler if serverless) | `postgresql://user:pass@ep-cool-db.us-east-2.aws.neon.tech/saad_medical?sslmode=require` |
-| `AUTH_SECRET` | **Yes** | 32+ character random secret for JWT session signing | `openssl rand -base64 32` |
+| `AUTH_SECRET` | **Yes** | 32+ character random secret for JWT session signing (the app refuses to sign sessions without it in production) | `openssl rand -base64 32` |
+| `ADMIN_EMAIL` | **Yes** | Store admin login email | `admin@saadmedicalstore.com` |
+| `ADMIN_PASSWORD` | **Yes** | Store admin password, used to create the admin account | a strong password |
 | `NEXT_PUBLIC_SITE_URL` | **Yes** | Canonical production site URL | `https://saadmedicalstore.com` |
 | `NEXT_PUBLIC_APP_NAME` | **Yes** | Public store name | `SAAD Medical Store` |
 | `NEXT_PUBLIC_APP_TAGLINE` | **Yes** | Store tagline | `We take care of your health` |
 | `NEXT_PUBLIC_STORE_LOCATION` | **Yes** | Physical pharmacy address in Lahore | `RajGarh Road, Lahore` |
 | `NEXT_PUBLIC_PHONE_SHARJEEL` | **Yes** | Primary store helpline contact | `03364085027` |
 | `NEXT_PUBLIC_PHONE_SAMEER` | **Yes** | Secondary store helpline contact | `03099634214` |
-| `S3_ENDPOINT` | Optional | S3 / R2 API endpoint for prescription file storage | `https://<account-id>.r2.cloudflarestorage.com` |
-| `S3_BUCKET` | Optional | Private bucket name for prescriptions | `saad-prescriptions-prod` |
-| `S3_ACCESS_KEY_ID` | Optional | Object storage Access Key ID | `••••••••••••••••` |
-| `S3_SECRET_ACCESS_KEY` | Optional | Object storage Secret Access Key | `••••••••••••••••` |
-| `S3_REGION` | Optional | Object storage region | `auto` / `us-east-1` |
+| `RESEND_API_KEY` | **Yes** | Resend API key for password reset emails | `re_...` |
+| `EMAIL_FROM` | **Yes** | Sender address on a domain verified in Resend | `SAAD Medical Store <no-reply@saadmedicalstore.com>` |
+| `S3_ENDPOINT` | **Yes on Vercel** | S3 / R2 API endpoint for prescription file storage | `https://<account-id>.r2.cloudflarestorage.com` |
+| `S3_BUCKET` | **Yes on Vercel** | Private bucket name for prescriptions | `saad-prescriptions-prod` |
+| `S3_ACCESS_KEY_ID` | **Yes on Vercel** | Object storage Access Key ID | `••••••••••••••••` |
+| `S3_SECRET_ACCESS_KEY` | **Yes on Vercel** | Object storage Secret Access Key | `••••••••••••••••` |
+| `S3_REGION` | **Yes on Vercel** | Object storage region | `auto` / `us-east-1` |
 
 > [!CAUTION]
 > Never commit real secrets to source control. Ensure `.env` is listed in `.gitignore`.
@@ -80,11 +84,11 @@ npx prisma db push
 ```
 
 ### Step 3: Seed Initial Admin & Catalog
-To seed the single store admin and the baseline Lahore pharmacy catalog:
+To create the store admin account (reads `ADMIN_EMAIL` / `ADMIN_PASSWORD`; re-running it resets the admin password):
 ```bash
-node scripts/seed-production.mjs
+node --env-file=.env scripts/seed-production.mjs
 ```
-*(Only run once during initial database provisioning).*
+The baseline Lahore pharmacy catalog seeds itself the first time the storefront loads an empty database.
 
 ---
 

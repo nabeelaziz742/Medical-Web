@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search, X, Loader2, ArrowRight, Pill, Grid, Tag, Sparkles } from "lucide-react";
 import { searchCatalogAutocomplete } from "@/lib/catalog";
+import { useStorefrontProducts } from "@/hooks/useStorefrontProducts";
 import { ProductDetail } from "@/data/products";
 import { formatPrice } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ export function LiveSearchBar({
   }>({ products: [], categories: [], brands: [] });
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const { products: liveProducts } = useStorefrontProducts();
 
   // Debounced live search
   useEffect(() => {
@@ -41,14 +43,14 @@ export function LiveSearchBar({
 
     setIsLoading(true);
     const timer = setTimeout(() => {
-      const res = searchCatalogAutocomplete(query);
+      const res = searchCatalogAutocomplete(query, liveProducts ?? undefined);
       setResults(res);
       setIsLoading(false);
       setIsOpen(true);
     }, 200);
 
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, liveProducts]);
 
   // Click outside to close
   useEffect(() => {

@@ -1,7 +1,10 @@
 import prisma from "@/lib/prisma";
 import { getUserCart, clearUserCart, getValidatedProduct, getDeliveryFeeConfig } from "@/lib/cart";
 import { CreateOrderInput } from "@/lib/validations/order";
-import { planFEFOAllocation, deductMemoryFEFOStock, BatchAllocation } from "@/lib/inventory";
+import { planFEFOAllocation, BatchAllocation } from "@/lib/inventory";
+import { getStoreSettings } from "@/lib/settings";
+
+const PRESCRIPTION_VALIDITY_DAYS = 30;
 import { validateCoupon, recordCouponUsage } from "@/lib/coupons";
 
 export interface PopulatedOrderItemAllocation {
@@ -128,6 +131,32 @@ export async function createOrder(
     });
   }
 
+  // Prescription-only medicines need a pharmacist-approved prescription on the account
+  let prescriptionId: string | null = null;
+  const rxItems = cart.items.filter((i) => i.product.requiresPrescription);
+  if (rxItems.length > 0) {
+    const approved = await prisma.prescription.findFirst({
+      where: {
+        userId,
+        status: "APPROVED",
+        reviewedAt: { gte: new Date(Date.now() - PRESCRIPTION_VALIDITY_DAYS * 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { reviewedAt: "desc" },
+    });
+    if (!approved) {
+      const names = rxItems.map((i) => i.product.name).join(", ");
+      throw new Error(
+        `${names} requires a prescription. Please upload your prescription; once our pharmacist approves it you can place this order.`
+      );
+    }
+    prescriptionId = approved.id;
+  }
+
+  const settings = await getStoreSettings();
+  if (settings.minOrderValue && calculatedSubtotal < settings.minOrderValue) {
+    throw new Error(`Minimum order value is Rs. ${settings.minOrderValue.toLocaleString()}.`);
+  }
+
   // 3. Validate & Apply Coupon if provided
   let discount = 0;
   let appliedCouponId: string | null = null;
@@ -147,9 +176,16 @@ export async function createOrder(
   const feeConfig = getDeliveryFeeConfig(calculatedSubtotal);
   const deliveryFee = feeConfig.deliveryFee;
   const grandTotal = Math.max(0, calculatedSubtotal + deliveryFee - discount);
+
+  // Never charge a different amount from the one the customer confirmed at checkout
+  if (input.expectedTotal !== undefined && Math.abs(input.expectedTotal - grandTotal) > 0.5) {
+    throw new Error(
+      `Your order total changed to Rs. ${grandTotal.toLocaleString()} (prices or stock were updated). Please review your cart and place the order again.`
+    );
+  }
   const orderNumber = generateOrderNumber();
 
-  let createdOrder: PopulatedOrder | null = null;
+  let createdOrder: PopulatedOrder;
 
   try {
     const dbOrder = await prisma.$transaction(async (tx) => {
@@ -162,6 +198,7 @@ export async function createOrder(
           customerPhone: input.customerPhone.trim(),
           customerEmail: input.customerEmail?.trim() || null,
           shippingAddressId: input.shippingAddressId || null,
+          prescriptionId,
           deliveryAddress: input.deliveryAddress.trim(),
           deliveryArea: input.deliveryArea.trim(),
           deliveryNotes: input.deliveryNotes?.trim() || null,
@@ -300,87 +337,15 @@ export async function createOrder(
       }),
     };
   } catch (err: any) {
-    // If error was thrown from insufficient stock or validation, rethrow it
-    if (err.message && (err.message.includes("Insufficient") || err.message.includes("out of stock") || err.message.includes("empty"))) {
+    if (err.message && (err.message.includes("Insufficient") || err.message.includes("out of stock"))) {
       throw err;
     }
-
-    // Memory fallback order
-    const orderId = `ord-${Date.now()}`;
-
-    // Deduct stock in memory
-    const memoryAllocationsToDeduct: Array<{ productId: string; batchId: string; quantity: number }> = [];
-    orderItemsData.forEach((item) => {
-      item.allocations.forEach((a) => {
-        memoryAllocationsToDeduct.push({
-          productId: item.productId,
-          batchId: a.batchId,
-          quantity: a.quantity,
-        });
-      });
-    });
-    deductMemoryFEFOStock(memoryAllocationsToDeduct, orderNumber, userId || "CUSTOMER_CHECKOUT");
-
-    // Record coupon usage in memory
-    if (appliedCouponId) {
-      await recordCouponUsage(null, appliedCouponId, orderId, userId, discount);
-    }
-
-    createdOrder = {
-      id: orderId,
-      orderNumber,
-      userId,
-      customerName: input.customerName.trim(),
-      customerPhone: input.customerPhone.trim(),
-      customerEmail: input.customerEmail?.trim() || null,
-      deliveryAddress: input.deliveryAddress.trim(),
-      deliveryArea: input.deliveryArea.trim(),
-      deliveryNotes: input.deliveryNotes?.trim() || null,
-      deliveryMethod: "HOME_DELIVERY",
-      status: "PENDING",
-      paymentStatus: "PENDING",
-      paymentMethod: input.paymentMethod,
-      subtotal: calculatedSubtotal,
-      deliveryFee,
-      discount,
-      couponCode: appliedCouponCode,
-      couponId: appliedCouponId,
-      total: grandTotal,
-      internalNotes: input.internalNotes?.trim() || null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      items: orderItemsData.map((d, index) => ({
-        id: `item-${orderId}-${index}`,
-        productId: d.productId,
-        productName: d.productName,
-        unitPrice: d.unitPrice,
-        quantity: d.quantity,
-        subtotal: d.subtotal,
-        batchId: d.allocations[0]?.batchId || null,
-        allocations: d.allocations.map((a) => ({
-          batchId: a.batchId,
-          batchNumber: a.batchNumber,
-          quantity: a.quantity,
-        })),
-        product: {
-          slug: d.slug,
-          packSize: d.packSize,
-          brand: d.brand,
-        },
-      })),
-    };
+    // Never report success for an order that was not saved
+    console.error("Order could not be saved:", err);
+    throw new Error("We could not place your order right now. Please try again in a moment.");
   }
 
-  // Always save in memory map as well
-  if (createdOrder) {
-    memoryOrders.set(createdOrder.id, createdOrder);
-    memoryOrders.set(createdOrder.orderNumber, createdOrder);
-  }
-
-  // Clear memory cart
-  await clearUserCart(userId);
-
-  return createdOrder!;
+  return createdOrder;
 }
 
 export async function getUserOrders(userId: string): Promise<PopulatedOrder[]> {

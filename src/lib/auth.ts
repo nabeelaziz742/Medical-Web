@@ -1,8 +1,19 @@
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
+import { createHash } from "crypto";
 
 const AUTH_COOKIE_NAME = "saad_medical_session";
-const JWT_SECRET = process.env.AUTH_SECRET || "saad-medical-store-secure-jwt-key-2026-lahore";
+const DEV_ONLY_SECRET = "saad-medical-store-local-development-secret";
+
+// Production must sign sessions with a private AUTH_SECRET; a secret in the source code lets anyone forge an admin login
+function getJwtSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_SECRET environment variable must be set in production");
+  }
+  return DEV_ONLY_SECRET;
+}
 
 export interface SessionUser {
   id: string;
@@ -22,7 +33,7 @@ async function getCryptoKey(): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   return crypto.subtle.importKey(
     "raw",
-    encoder.encode(JWT_SECRET),
+    encoder.encode(getJwtSecret()),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"]
@@ -99,6 +110,10 @@ export async function verifyJWT(token: string): Promise<SessionUser | null> {
   } catch (error) {
     return null;
   }
+}
+
+export function hashResetToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 export async function hashPassword(password: string): Promise<string> {

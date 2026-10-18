@@ -18,7 +18,7 @@ export interface StoreSettings {
 
 export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   storeName: "SAAD Medical Store",
-  storePhone: "+92 300 1234567",
+  storePhone: process.env.NEXT_PUBLIC_PHONE_SHARJEEL || "03364085027",
   storeEmail: "info@saadmedicalstore.com",
   storeAddress: "Shop #1, Near Main Gate, RajGarh Road, Lahore",
   storeLocation: "Lahore, Punjab, Pakistan",

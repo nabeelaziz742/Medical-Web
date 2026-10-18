@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { getSession } from "@/lib/auth";
 import { createOrder, getUserOrders } from "@/lib/orders";
 import { createOrderSchema } from "@/lib/validations/order";
-import { getUserCart, addItemToUserCart, clearUserCart } from "@/lib/cart";
-
-const GUEST_CART_COOKIE = "saad_guest_cart_id";
 
 // GET: Retrieve authenticated user's order list
 export async function GET() {
@@ -44,19 +40,6 @@ export async function POST(req: NextRequest) {
         { error: validated.error.errors[0]?.message || "Invalid order details" },
         { status: 400 }
       );
-    }
-
-    // Check if there are items in guest cart that should be merged
-    const cookieStore = await cookies();
-    const guestId = cookieStore.get(GUEST_CART_COOKIE)?.value;
-    if (guestId) {
-      const guestCart = await getUserCart(guestId);
-      if (guestCart.items.length > 0) {
-        for (const item of guestCart.items) {
-          await addItemToUserCart(session.id, item.productId, item.quantity);
-        }
-        await clearUserCart(guestId);
-      }
     }
 
     const order = await createOrder(session.id, validated.data);

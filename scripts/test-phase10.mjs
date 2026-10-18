@@ -330,6 +330,7 @@ async function runTests() {
         customerPhone: userAPhone,
         customerEmail: userAEmail,
         deliveryAddress: "House 12, RajGarh Road, Lahore",
+        deliveryArea: "RajGarh",
         deliveryMethod: "HOME_DELIVERY",
         paymentMethod: "CASH_ON_DELIVERY",
         couponCode: promoCode,

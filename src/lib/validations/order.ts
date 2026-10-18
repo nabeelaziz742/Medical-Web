@@ -14,6 +14,7 @@ export const createOrderSchema = z.object({
   paymentMethod: z.enum(["CASH_ON_DELIVERY", "DIRECT_BANK_TRANSFER"]),
   internalNotes: z.string().max(500, "Notes cannot exceed 500 characters").optional().or(z.literal("")),
   couponCode: z.string().optional(),
+  expectedTotal: z.number().nonnegative().optional(),
 });
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;

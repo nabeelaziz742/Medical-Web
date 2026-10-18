@@ -351,6 +351,8 @@ export function CheckoutView() {
         deliveryMethod: "HOME_DELIVERY",
         paymentMethod,
         couponCode: appliedCoupon?.code || undefined,
+        // Server refuses the order if its total differs from what the customer sees here
+        expectedTotal: Math.max(0, subtotal + deliveryFee - (appliedCoupon?.discountAmount || 0)),
       };
 
       const res = await fetch("/api/orders", {
@@ -361,6 +363,7 @@ export function CheckoutView() {
 
       const data = await res.json();
       if (!res.ok) {
+        await refreshCart();
         throw new Error(data.error || "Failed to place order");
       }
 

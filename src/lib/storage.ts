@@ -1,5 +1,32 @@
 import fs from "fs";
 import path from "path";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  NoSuchKey,
+} from "@aws-sdk/client-s3";
+
+// Private bucket (Cloudflare R2 / AWS S3 / MinIO) used when S3_* variables are set.
+// Required on Vercel: its local disk is temporary, so files saved there disappear.
+const S3_BUCKET = process.env.S3_BUCKET;
+const s3Client =
+  S3_BUCKET && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY
+    ? new S3Client({
+        region: process.env.S3_REGION || "auto",
+        endpoint: process.env.S3_ENDPOINT || undefined,
+        forcePathStyle: Boolean(process.env.S3_ENDPOINT),
+        credentials: {
+          accessKeyId: process.env.S3_ACCESS_KEY_ID,
+          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+        },
+      })
+    : null;
+
+function objectKey(storageKey: string): string {
+  return `prescriptions/${path.basename(storageKey)}`;
+}
 
 // Private storage directory outside public/
 // On Vercel / serverless runtimes, fallback to /tmp to prevent EROFS errors
@@ -69,15 +96,30 @@ export async function savePrescriptionFile(
   fileType: string;
   fileName: string;
 }> {
-  ensureStorageDirectory();
-
   const safeOriginalName = sanitizeFilename(originalName || "prescription");
   const ext = path.extname(safeOriginalName).toLowerCase() || ALLOWED_MIME_TYPES[mimeType] || ".jpg";
   const randomSuffix = Math.random().toString(36).slice(2, 10);
   const storageKey = `rx_${Date.now()}_${randomSuffix}${ext}`;
-  const filePath = path.join(STORAGE_ROOT, storageKey);
 
-  await fs.promises.writeFile(filePath, Buffer.from(buffer));
+  if (s3Client) {
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: objectKey(storageKey),
+        Body: Buffer.from(buffer),
+        ContentType: mimeType || "application/octet-stream",
+      })
+    );
+  } else {
+    if (isServerless) {
+      // Refuse rather than keep a medical document on disk that will be wiped
+      throw new Error(
+        "Prescription upload is temporarily unavailable. Please call the store or send your prescription on WhatsApp."
+      );
+    }
+    ensureStorageDirectory();
+    await fs.promises.writeFile(path.join(STORAGE_ROOT, storageKey), Buffer.from(buffer));
+  }
 
   return {
     storageKey,
@@ -88,6 +130,19 @@ export async function savePrescriptionFile(
 }
 
 export async function readPrescriptionFile(storageKey: string): Promise<Buffer | null> {
+  if (s3Client) {
+    try {
+      const res = await s3Client.send(
+        new GetObjectCommand({ Bucket: S3_BUCKET, Key: objectKey(storageKey) })
+      );
+      if (!res.Body) return null;
+      return Buffer.from(await res.Body.transformToByteArray());
+    } catch (err) {
+      if (err instanceof NoSuchKey) return null;
+      throw err;
+    }
+  }
+
   ensureStorageDirectory();
 
   // Prevent directory traversal attacks
@@ -103,6 +158,10 @@ export async function readPrescriptionFile(storageKey: string): Promise<Buffer |
 
 export async function deletePrescriptionFile(storageKey: string): Promise<boolean> {
   try {
+    if (s3Client) {
+      await s3Client.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: objectKey(storageKey) }));
+      return true;
+    }
     ensureStorageDirectory();
     const safeKey = path.basename(storageKey);
     const filePath = path.join(STORAGE_ROOT, safeKey);

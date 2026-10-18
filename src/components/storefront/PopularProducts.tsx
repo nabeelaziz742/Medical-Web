@@ -1,11 +1,18 @@
 import React from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { POPULAR_PRODUCTS } from "@/data/seedProducts";
+import { getStorefrontProducts } from "@/lib/productStore";
 import { ProductCard } from "./ProductCard";
 import { ScrollReveal } from "@/components/ui/ScrollReveal";
 
-export function PopularProducts() {
+export async function PopularProducts() {
+  // Featured products first, then fill up to 6 from the live catalog (same ids the cart uses)
+  const products = await getStorefrontProducts();
+  const popular = [
+    ...products.filter((p) => p.isFeatured),
+    ...products.filter((p) => !p.isFeatured),
+  ].slice(0, 6);
+
   return (
     <section className="py-14 sm:py-16 md:py-20 bg-slate-50/80 border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -36,7 +43,7 @@ export function PopularProducts() {
         {/* Product Cards Grid: 6 Items */}
         <ScrollReveal delay={0.1}>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-6">
-            {POPULAR_PRODUCTS.map((product) => (
+            {popular.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>

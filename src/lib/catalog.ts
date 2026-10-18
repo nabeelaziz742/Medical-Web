@@ -12,8 +12,9 @@ export interface FilterOptions {
   sort?: "price-asc" | "price-desc" | "name-asc" | "name-desc" | "featured";
 }
 
-export function getProducts(options?: FilterOptions): ProductDetail[] {
-  let filtered = [...CATALOG_PRODUCTS];
+// `source` is the live product list from /api/products; the bundled catalog is only a fallback
+export function getProducts(options?: FilterOptions, source: ProductDetail[] = CATALOG_PRODUCTS): ProductDetail[] {
+  let filtered = [...source];
 
   if (!options) return filtered;
 
@@ -90,8 +91,8 @@ export function getProductBySlug(slug: string): ProductDetail | undefined {
   return CATALOG_PRODUCTS.find((p) => p.slug.toLowerCase() === slug.toLowerCase());
 }
 
-export function getRelatedProducts(product: ProductDetail, limit = 4): ProductDetail[] {
-  return CATALOG_PRODUCTS.filter(
+export function getRelatedProducts(product: ProductDetail, limit = 4, source: ProductDetail[] = CATALOG_PRODUCTS): ProductDetail[] {
+  return source.filter(
     (p) => p.id !== product.id && (p.categorySlug === product.categorySlug || p.brand === product.brand)
   ).slice(0, limit);
 }
@@ -107,14 +108,14 @@ export function getBrandsList() {
   return BRANDS;
 }
 
-export function searchCatalogAutocomplete(query: string) {
+export function searchCatalogAutocomplete(query: string, source: ProductDetail[] = CATALOG_PRODUCTS) {
   if (!query || query.trim().length < 2) {
     return { products: [], categories: [], brands: [] };
   }
 
   const q = query.toLowerCase().trim();
 
-  const matchingProducts = CATALOG_PRODUCTS.filter(
+  const matchingProducts = source.filter(
     (p) =>
       p.name.toLowerCase().includes(q) ||
       p.genericName?.toLowerCase().includes(q) ||

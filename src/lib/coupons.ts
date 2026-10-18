@@ -75,6 +75,41 @@ if (memoryCoupons.size === 0) {
 }
 
 /**
+ * Put the default WELCOME10 coupon into the database when the store has no coupons yet,
+ * so orders that use it are saved like any other.
+ */
+let couponSeedPromise: Promise<void> | null = null;
+export function ensureDefaultCouponSeeded(): Promise<void> {
+  if (!couponSeedPromise) {
+    couponSeedPromise = (async () => {
+      if ((await prisma.coupon.count()) > 0) return;
+      const def = memoryCoupons.get("WELCOME10");
+      if (!def) return;
+      await prisma.coupon.upsert({
+        where: { code: def.code },
+        create: {
+          code: def.code,
+          discountType: def.discountType,
+          discountValue: def.discountValue,
+          minOrderValue: def.minOrderValue,
+          maxDiscount: def.maxDiscount,
+          validFrom: new Date(def.validFrom),
+          validTo: new Date(def.validTo),
+          usageLimit: def.usageLimit,
+          perCustomerLimit: def.perCustomerLimit,
+          isActive: def.isActive,
+        },
+        update: {},
+      });
+    })().catch((err) => {
+      couponSeedPromise = null;
+      throw err;
+    });
+  }
+  return couponSeedPromise;
+}
+
+/**
  * Determine dynamic status of a coupon based on current time and usage limits
  */
 export function calculateCouponStatus(coupon: {
@@ -113,8 +148,10 @@ export async function validateCoupon(
   const code = rawCode.trim().toUpperCase();
 
   let couponRecord: PopulatedCoupon | null = null;
+  let databaseReachable = true;
 
   try {
+    await ensureDefaultCouponSeeded();
     const dbCoupon = await prisma.coupon.findUnique({
       where: { code },
     });
@@ -139,10 +176,11 @@ export async function validateCoupon(
       };
     }
   } catch (err) {
-    // Database fallback to memory map
+    databaseReachable = false;
   }
 
-  if (!couponRecord) {
+  // Memory coupons are only a fallback while the database is down; orders can only reference real coupon rows
+  if (!couponRecord && !databaseReachable) {
     couponRecord = memoryCoupons.get(code) || null;
   }
 
@@ -282,6 +320,7 @@ export async function getAdminCoupons(query: CouponQueryInput) {
   const skip = (page - 1) * limit;
 
   try {
+    await ensureDefaultCouponSeeded();
     const where: any = {};
 
     if (search) {

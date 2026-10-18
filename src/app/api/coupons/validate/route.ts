@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { cookies } from "next/headers";
 import { validateCoupon } from "@/lib/coupons";
+import { getUserCart } from "@/lib/cart";
+import { GUEST_CART_COOKIE } from "@/lib/guestCart";
 import { validateCouponSchema } from "@/lib/validations/coupon";
 
 export async function POST(req: NextRequest) {
@@ -18,11 +21,13 @@ export async function POST(req: NextRequest) {
     const session = await getSession();
     const userId = session?.id;
 
-    const result = await validateCoupon(
-      validated.data.code,
-      validated.data.subtotal,
-      userId
-    );
+    // Use the server-side cart subtotal so the discount shown matches what the order will apply
+    const cookieStore = await cookies();
+    const cartOwner = userId || cookieStore.get(GUEST_CART_COOKIE)?.value;
+    const cartSubtotal = cartOwner ? (await getUserCart(cartOwner)).subtotal : 0;
+    const subtotal = cartSubtotal > 0 ? cartSubtotal : validated.data.subtotal;
+
+    const result = await validateCoupon(validated.data.code, subtotal, userId);
 
     return NextResponse.json({
       success: true,

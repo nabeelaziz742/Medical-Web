@@ -15,11 +15,14 @@ import {
 import { ProductFilterSidebar } from "./ProductFilterSidebar";
 import { ProductCard } from "@/components/storefront/ProductCard";
 import { getProducts, FilterOptions } from "@/lib/catalog";
+import { useStorefrontProducts } from "@/hooks/useStorefrontProducts";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 export function CatalogView() {
   const router = useRouter();
+  const { products: liveProducts, isLoading: isLoadingProducts } = useStorefrontProducts();
   const searchParams = useSearchParams();
 
   // Read initial query params
@@ -95,15 +98,19 @@ export function CatalogView() {
 
   // Filter products in memory
   const products = useMemo(() => {
-    return getProducts({
-      search,
-      category,
-      brand,
-      sort,
-      inStockOnly,
-      prescriptionOnly,
-    });
-  }, [search, category, brand, sort, inStockOnly, prescriptionOnly]);
+    if (!liveProducts) return [];
+    return getProducts(
+      {
+        search,
+        category,
+        brand,
+        sort,
+        inStockOnly,
+        prescriptionOnly,
+      },
+      liveProducts
+    );
+  }, [liveProducts, search, category, brand, sort, inStockOnly, prescriptionOnly]);
 
   const hasActiveFilters =
     Boolean(category && category !== "all") ||
@@ -292,7 +299,13 @@ export function CatalogView() {
           </div>
 
           {/* Product Grid */}
-          {products.length > 0 ? (
+          {isLoadingProducts ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+              {[...Array(6)].map((_, i) => (
+                <Skeleton key={i} className="h-72 rounded-xl" />
+              ))}
+            </div>
+          ) : products.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
               {products.map((product) => (
                 <ProductCard key={product.id} product={product} />

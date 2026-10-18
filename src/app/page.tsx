@@ -6,6 +6,9 @@ import { PopularProducts } from "@/components/storefront/PopularProducts";
 import { TrustSection } from "@/components/storefront/TrustSection";
 import { CtaSection } from "@/components/storefront/CtaSection";
 
+// Popular products show live prices and stock from the database
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "SAAD Medical Store — We take care of your health | Lahore",
   description: "SAAD Medical Store on RajGarh Road, Lahore. Order genuine medicines, healthcare products, and upload doctor's prescriptions with home delivery across Lahore.",

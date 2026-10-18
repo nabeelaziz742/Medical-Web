@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resetPasswordSchema } from "@/lib/validations/auth";
-import { hashPassword } from "@/lib/auth";
+import { hashResetToken, hashPassword } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
@@ -17,14 +17,9 @@ export async function POST(req: NextRequest) {
 
     const { token, password } = validated.data;
 
-    let resetRecord = null;
-    try {
-      resetRecord = await prisma.passwordResetToken.findUnique({
-        where: { token },
-      });
-    } catch (err) {
-      console.warn("Token lookup notice:", err);
-    }
+    const resetRecord = await prisma.passwordResetToken.findUnique({
+      where: { token: hashResetToken(token) },
+    });
 
     if (!resetRecord || resetRecord.expiresAt < new Date()) {
       return NextResponse.json(
@@ -35,19 +30,16 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await hashPassword(password);
 
-    try {
-      await prisma.user.update({
+    await prisma.$transaction([
+      prisma.user.update({
         where: { email: resetRecord.email },
         data: { passwordHash },
-      });
-
+      }),
       // Delete token after successful reset
-      await prisma.passwordResetToken.delete({
+      prisma.passwordResetToken.delete({
         where: { id: resetRecord.id },
-      });
-    } catch (updateErr) {
-      console.warn("Password update notice:", updateErr);
-    }
+      }),
+    ]);
 
     return NextResponse.json({
       success: true,

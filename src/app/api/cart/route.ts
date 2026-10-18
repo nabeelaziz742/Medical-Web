@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getSession } from "@/lib/auth";
+import { GUEST_CART_COOKIE } from "@/lib/guestCart";
 import {
   getUserCart,
   addItemToUserCart,
@@ -14,7 +15,6 @@ import {
   removeCartItemSchema,
 } from "@/lib/validations/cart";
 
-const GUEST_CART_COOKIE = "saad_guest_cart_id";
 
 async function getEffectiveUserId(): Promise<{ userId: string; isGuest: boolean }> {
   const session = await getSession();
